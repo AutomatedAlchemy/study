@@ -12,7 +12,7 @@ one session at the courses' common parent folder, like the Gärtner, with every
 course's dossier, your upcoming exams, the Wochenplan and the current time. It
 works from the clock:
 
-1. It reads your profile: the tab „Profil“ on a Tutor Board named „studyclaude“.
+1. It reads your profile: the tab „Profil“ on one of your Tutor Boards, found by name.
    The profile says who you are (programme, semester), where your timetable is
    (a calendar, a file, another board's tab) and where the semester's material
    lies. It is free text. The repo holds no personal data, so the profile lives
@@ -28,8 +28,8 @@ works from the clock:
    it suggests, and then starts.
 
 It is the automatic default whenever you never chose one, and `d` on its row or
-`studyclaude --set-default begleiter` sets it explicitly. The board „studyclaude“
-holds only the profile; Häppchen go on each course's own board.
+`studyclaude --set-default begleiter` sets it explicitly. The tab „Profil“ may sit on
+any of your boards (found by name); Häppchen go on each course's own board.
 
 ## Dossiers
 

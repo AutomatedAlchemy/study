@@ -53,7 +53,7 @@ into `_archiv/` beside it · `q` quits. Untouched for ten seconds it autostarts 
 
 Mechanics of the three modes, the streak and the dossiers: [docs/modes.md](docs/modes.md).
 The Begleiter reads who you are and where your timetable lives from a tab
-„Profil“ on a Tutor Board named „studyclaude“; without it, it asks you in chat
+„Profil“ on one of your Tutor Boards (any board, found by the tab name); without it, it asks you in chat
 ([docs/modes.md § Begleiter](docs/modes.md#begleiter)).
 To steer which course the Begleiter and the Quickie pick on which weekday, put a
 plain-text rule into `data/wochenplan.md` ([docs/modes.md § Wochenplan](docs/modes.md#wochenplan)).

@@ -542,7 +542,7 @@ def test_begleiter_starts_from_the_clock_and_the_profile_tab(tmp_path):
     now = datetime.datetime(2026, 10, 19, 14, 5)
     text = m.opening_message_begleiter([a, b], now=now)
     assert "Montag, 19.10.2026, 14:05 Uhr" in text
-    assert f"„{m.PROFILE_BOARD}“, Tab „{m.PROFILE_TAB}“" in text
+    assert f"Tab „{m.PROFILE_TAB}“ auf einem meiner Boards" in text
     assert a in text and b in text and "<dossiers>" in text
     assert "<wochenplan>" not in text
     (tmp_path / "wochenplan.md").write_text("Mo–Fr: Physik\n", encoding="utf-8")

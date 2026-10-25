@@ -182,14 +182,15 @@ calendar, a campo export, a board tab), and which course bundles which lecture
 is a fact of the course, not of this tool.
 
 **The profile is on the board, not in the repo.** Who the user is and where the
-timetable and the semester material are is a tab `PROFILE_TAB` („Profil“) on a
-board `PROFILE_BOARD` („studyclaude“), found by name. The repo is public and
+timetable and the semester material are is a tab `PROFILE_TAB` („Profil“) on any
+of the user's boards (since 21.10.2026 no fixed board name; usually the semester
+overview board), found by the tab name. The repo is public and
 `test_no_personal_paths_and_no_builtin_default` keeps personal data out of
 `main.py`; the board is the user's own and reaches every agent on the account.
 The prompt names only the board and the tab, never how the MCP tools work
 (same boundary as `templates/media/board.md`). Without a board tool (fauclaude,
 Xournal++ users) or without the tab, the session says so in one sentence and asks
-in chat. The board „studyclaude“ holds only the profile; course work goes on the
+in chat. The board with the profile is no course board; course work goes on the
 course's own board, as the medium file says.
 
 It is a row and a sentinel (`_BEGLEITER_SENTINEL`, in `_SENTINELS`): a valid
