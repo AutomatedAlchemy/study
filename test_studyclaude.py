@@ -699,3 +699,18 @@ def test_model_selection_menu_scrolling_on_compact_terminal():
     has_upper_indicator = any("weitere Modelle oben" in text for _, _, text, _ in screen.rendered_lines)
     assert has_upper_indicator
 
+
+
+def test_menu_countdown_survives_a_window_resize(monkeypatch, tmp_path):
+    """A resize (Konsole maximising right after the autostart) is no keypress:
+    the countdown still starts the default. Before the fix it read the `q`."""
+    import collections
+    monkeypatch.setattr(curses, "curs_set", lambda _: None)
+    monkeypatch.setattr(m, "_init_colors", lambda: collections.defaultdict(int))
+    monkeypatch.setattr(m, "_available_models", lambda: ["opus"])
+    monkeypatch.setattr(m, "_exam_banner_lines", lambda: [])
+    clock = iter([0.0, 0.0])
+    monkeypatch.setattr(m.time, "monotonic", lambda: next(clock, 11.0))
+    data = {"workspaces": [str(tmp_path)], "default": m._BEGLEITER_SENTINEL}
+    screen = MockCursesScreen([curses.KEY_RESIZE, ord("q")])
+    assert m._menu_loop(screen, data) == ("begleiter", None)

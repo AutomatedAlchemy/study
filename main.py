@@ -1863,8 +1863,8 @@ def _menu_loop(stdscr, data: dict):
             return ("launch", default)
 
         ch = stdscr.getch()
-        if ch == -1:
-            continue
+        if ch in (-1, curses.KEY_RESIZE):
+            continue  # a resize is no keypress: Konsole maximising at login must not cancel
         interacted = True  # any key cancels the autostart countdown
         if multi:
             # The multiselect owns the keys: navigate, toggle, start the
