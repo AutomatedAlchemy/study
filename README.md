@@ -82,8 +82,7 @@ MCP (Model Context Protocol) connector, `https://beta.probable.work/mcp`, with
 OAuth 2.1 + PKCE (Proof Key for Code Exchange); live docs at
 <https://beta.probable.work/setup.md> and <https://beta.probable.work/agent.md>.
 studyclaude ships no MCP client and no credentials — those come from your own
-Claude Code MCP config. Status 2026-09-16: multi-user yes, several agents in
-parallel on one account not safe yet, one agent per account link.
+Claude Code MCP config.
 
 ## The Blatt-Finder
 
