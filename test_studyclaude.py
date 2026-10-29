@@ -212,6 +212,7 @@ def test_cli_routes(tmp_path, monkeypatch, spawns):
         ("--begleiter",): "_launch_begleiter",
         ("--print-prompt", "--begleiter"): None,
         ("--quickie",): "_launch_quickie",
+        ("--print-prompt", "--quickie"): None,
         ("--gaertner",): "_launch_gaertner",
         ("--gaertner", a): "_launch_gaertner",
         ("--print-prompt", "--gaertner"): None,

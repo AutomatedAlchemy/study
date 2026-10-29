@@ -2132,6 +2132,9 @@ def main() -> int:
         if not data["workspaces"]:
             print("Noch kein Kurs registriert — run `studyclaude` for the menu.")
             return 1
+        if args.print_prompt:               # inspection only: no launch, no streak
+            print(_assemble_quickie_prompt(data["workspaces"]))
+            return 0
         return _launch_quickie(data, inline=False)
     if args.gaertner is not None:
         data = _ensure_default(_load_registry())
