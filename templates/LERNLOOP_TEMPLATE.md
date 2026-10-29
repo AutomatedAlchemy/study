@@ -14,6 +14,12 @@
 | **Modus** | «Rechnen \| Freitext \| Multiple Choice \| mündlich»; hat die Prüfung Teile mit verschiedenem Format, das Format je Teil |
 | **Bestehen ab** | «z.B. 50 %» |
 | **Hilfsmittel** | «z.B. 5 handschriftliche A4-Seiten \| keine \| Formelsammlung» |
+| **Visualisierung** | «viel \| mittel \| wenig \| keine»; Ausnahmen je Thema in einem Halbsatz, z.B. „Phasendiagramme viel, Stöchiometrie keine“ |
+
+**Visualisierung** sagt, wie viel Anschauung das Fach trägt. Die anlegende Session
+schlägt die Stufe aus der Themenkarte vor und lässt sie bestätigen; das Feld
+blockiert nicht. Was eine Stufe im aktiven Medium heißt, steht im Systemprompt.
+Sagt der User „mehr Bilder“ oder „weniger“, wird die Zeile geändert.
 
 **Unbekannte Eckdaten blockieren.** Ist ein Feld beim Anlegen unbekannt (vor allem
 Hilfsmittel, Datum, Bestehensgrenze), steht es in der Vereinbarung als offene Frage
@@ -188,6 +194,9 @@ die durch die Themen der Themenkarte oben **rotieren** — NICHT große Multi-Au
   Nennung ist ein Fehler, auch wenn der Rest stimmt.
 - **Konzeptlücken erst prüfen:** bei neuen Themen nicht Bekanntheit voraussetzen — 1–2-
   Satz-Konzeptintro, Notation ausschreiben (z.B. ⟨a,b⟩ = a₁b₁+a₂b₂).
+- **Bild beim Bauen entscheiden:** zu jedem Häppchen nach der Eckdaten-Zeile
+  `Visualisierung`, wie im Systemprompt beschrieben, und die Entscheidung in
+  `todo.md` beim Häppchen als Zeile `Bild: …` buchen, bei keinem Bild mit Grund.
 - **Ablauf:** eine Mini-Aufgabe → User löst sie mit Zwischenschritten im aktiven Medium →
   gibt ab (wie, steht im Systemprompt) → gezieltes Review → nächstes Häppchen (nächster Typ).
 - **Neues Häppchen sofort selbst öffnen**, nicht nachfragen — im aktiven Medium,

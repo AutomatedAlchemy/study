@@ -284,6 +284,32 @@ seems missing is added to the server's descriptions — the Tutor Board server i
 a private repo of the author, agent docs at
 <https://beta.probable.work/agent.md> — not to the template.
 
+## Visuals: level in the course, forms in the medium
+
+Added 2026-10-29 (user) after a transcript count: of 25 content tabs since
+1 October, 4 got a clip without being asked, and no session ever said why it
+skipped one. The old clip rule sat near the end of `board.md`, fired only
+"after each new Häppchen tab" (the Begleiter's lecture tabs never counted),
+knew only the narrated manim clip, and came after "hand over, then wait", so
+the session went into `wait_url` and never came back to it.
+
+The split follows the Kursübersicht:
+
+- **Level** is the course's: the Eckdaten row `| **Visualisierung** | viel |
+  mittel | wenig | keine; Ausnahmen |` in its CLAUDE.md. `course_visual_level`
+  parses it, same fail-into-silence contract as `course_overview`; the
+  template placeholder starts with « and does not match. The dossier says
+  `Visualisierung: <Stufe>` or `Visualisierung: fehlt`.
+- **Meaning and form** are the medium's: `board.md` §„Bild zu jedem
+  Inhalts-Tab“ (a table level → sketch / clip, the build order, the `Bild: …`
+  line in todo.md) and §„Clip“ (the manim mechanics); `xournalpp.md` has one
+  bullet (a TikZ sketch in the PDF). The section sits right after „Blöcke
+  bauen“ on purpose: deciding the picture is part of building the tab.
+- **Presence** is the launcher's: `_visual_brief` asks the session to propose a
+  level, ask once and write the row. It goes into `opening_message` only while
+  the row is missing, always into `opening_message_begleiter`, never into the
+  Quickie. The 10 existing courses were not edited by hand.
+
 ## Catch-all for maths gaps: a marker file, one rule in the prompt
 
 One course may collect the maths gaps the other courses find. It marks itself

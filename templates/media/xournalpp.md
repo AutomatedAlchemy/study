@@ -12,6 +12,13 @@
 - **Kursübersicht** (§Kursübersicht der Kurs-CLAUDE.md): ein aufgabenfreies
   Lesedokument `kursuebersicht.tex` → PDF im Kurs-Ordner, sofort in Firefox
   öffnen; die Bestätigung kommt im Chat, dann die Zeile in `todo.md`.
+- **Bild im Häppchen:** beim Bauen eine Skizze (TikZ/pgfplots) ins PDF setzen,
+  nach der Eckdaten-Zeile `Visualisierung` der Kurs-CLAUDE.md (fehlt sie: `mittel`).
+  `viel` = in jedem Häppchen, `mittel` = wo das Thema eine Kurve, ein Diagramm,
+  eine Geometrie oder eine Struktur hat, `wenig` = nur wo die Prüfung ein Diagramm
+  zeichnen oder ablesen lässt, `keine` = nur auf Wunsch. Nie das, was die Aufgabe
+  zeichnen lässt. In `todo.md` beim Häppchen `Bild: Skizze` oder
+  `Bild: keins (<Grund>)`.
 - **Neues Häppchen:** das PDF sofort selbst in Firefox öffnen, nicht nachfragen.
 - **Abgabe:** der User sagt Bescheid, wenn er fertig ist; gelesen wird das
   gespeicherte `.xopp` (bei Papier das Foto/der Scan).

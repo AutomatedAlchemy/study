@@ -73,7 +73,9 @@ browser, calculations on a separate `.xopp` sheet) or on a **Tutor Board** (a we
 whiteboard, one tab per exercise, needs an account on the author's invite-only
 service). Switch with `m`, `studyclaude --set-medium xournalpp|board` or
 `STUDYCLAUDE_MEDIUM`; verbal mid-session switch and per-course pin in
-[docs/workspace.md](docs/workspace.md#the-medium-switch).
+[docs/workspace.md](docs/workspace.md#the-medium-switch). How many sketches and
+clips a course gets is one Eckdaten row in its `CLAUDE.md`, see
+[docs/workspace.md](docs/workspace.md#visuals-per-course).
 
 **Tutor Board** lives at <https://beta.probable.work>. An agent connects as an
 MCP (Model Context Protocol) connector, `https://beta.probable.work/mcp`, with

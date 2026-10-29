@@ -439,6 +439,21 @@ def _finder_brief() -> str:
     )
 
 
+def _visual_brief() -> str:
+    """The backfill for a course whose Eckdaten lack the Visualisierung row.
+    The level is the course's (its CLAUDE.md), what a level means is the
+    medium file's; the launcher only says: ask once, write the row."""
+    return (
+        "Fehlt in den Eckdaten der Kurs-CLAUDE.md die Zeile „Visualisierung“ "
+        "(„Visualisierung: fehlt“ im Dossier), schlag mir vor dem ersten Häppchen "
+        "in einem Satz eine Stufe vor (viel | mittel | wenig | keine, begründet aus "
+        "der Themenkarte, Ausnahmen je Thema in einem Halbsatz) und frag einmal. "
+        "Trag die Antwort als Zeile „| **Visualisierung** | <Stufe>; <Ausnahmen> |“ "
+        "in die Eckdaten-Tabelle ein; sonst nichts an der Datei ändern. Bis dahin "
+        "gilt mittel. Was eine Stufe heißt, steht in der Medium-Mechanik."
+    )
+
+
 def opening_message(workspace: str) -> str:
     text = (
         "Lass uns lernen. Führe die Lern-Loop aus der CLAUDE.md dieses Ordners aus: "
@@ -447,6 +462,8 @@ def opening_message(workspace: str) -> str:
     )
     if course_overview(workspace) is None:
         text += " " + _overview_brief()
+    if course_visual_level(workspace) is None:
+        text += " " + _visual_brief()
     return text
 
 
@@ -942,6 +959,21 @@ _OVERVIEW_RE = re.compile(r"(?:ü|ue)bersicht:\s*bestätigt\s*(\d{4}-\d{2}-\d{2}
 # ("Übersicht: gebaut 2026-09-02, Bestätigung ausstehend"). Still unconfirmed,
 # but the session must ask for the confirmation instead of building again.
 _OVERVIEW_BUILT_RE = re.compile(r"(?:ü|ue)bersicht:\s*gebaut", re.IGNORECASE)
+# The Eckdaten row in the course CLAUDE.md that says how much visual material
+# the subject carries: "| **Visualisierung** | viel; … |". The template's
+# placeholder starts with «, so a freshly stamped course does not match.
+_VISUAL_RE = re.compile(r"^\|\s*\**visualisierung\**\s*\|\s*\**(viel|mittel|wenig|keine)\b",
+                        re.IGNORECASE | re.MULTILINE)
+
+
+def course_visual_level(workspace: str) -> "str | None":
+    """The Visualisierung level from the course CLAUDE.md's Eckdaten, or None."""
+    try:
+        text = (Path(workspace) / "CLAUDE.md").read_text(encoding="utf-8")
+    except OSError:
+        return None
+    match = _VISUAL_RE.search(text)
+    return match.group(1).lower() if match else None
 
 
 def course_overview(workspace: str) -> "str | None":
@@ -1084,9 +1116,11 @@ def _course_dossier(workspace: str) -> str:
     prog = course_progress(workspace)
     days = _days_since_activity(workspace)
     confirmed = course_overview(workspace)
+    visual = course_visual_level(workspace)
     facts = [
         f"Fortschritt: {prog[0]}/{prog[1]} Häppchen" if prog else "Fortschritt: unbekannt",
         f"Übersicht: bestätigt {confirmed}" if confirmed else "Übersicht: fehlt",
+        f"Visualisierung: {visual}" if visual else "Visualisierung: fehlt",
         f"letzte Aktivität: vor {days} Tagen" if days is not None else "letzte Aktivität: unbekannt",
     ]
     topics = _themenkarte_size(workspace)
@@ -1459,7 +1493,7 @@ def opening_message_begleiter(workspaces: list, now: "datetime | None" = None) -
         f"Kurse:\n<dossiers>\n{dossiers}\n</dossiers>\n"
         f"{_DATA_TAGS_NOTE}\n\n"
         "Für ein Häppchen: " + _LOOP_BRIEF + " " + _finder_brief() + " "
-        + _overview_brief()
+        + _overview_brief() + " " + _visual_brief()
     )
 
 

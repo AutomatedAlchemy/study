@@ -62,6 +62,44 @@ beschrieben oder behoben, nicht hier umschifft.
   Korrektur später direkt unter die Aufgabe. Das gilt für jede Aufgabe, auch ohne
   Schlüssel und auch in Tabs mit nur einer Aufgabe.
 
+## Bild zu jedem Inhalts-Tab (Nutzervorgabe 17.09. und 29.10.2026)
+
+Gilt für jeden Tab mit Lernstoff: Häppchen, Quiz, Begleitung, Vor- und
+Nachbereitung einer Veranstaltung. Nicht für Übersicht, Fortschritt, Hilfsmittel
+und Plan-Tabs. Entschieden wird beim Bauen des Tabs, nicht danach.
+
+**Die Stufe** steht in den Eckdaten der Kurs-CLAUDE.md, Zeile `Visualisierung`.
+Fehlt die Zeile, gilt `mittel`. Ausnahmen je Thema in derselben Zeile gehen vor.
+
+| Stufe | Skizze | Clip |
+|---|---|---|
+| viel | in jedem Inhalts-Tab | zu jeder neuen Idee, in der sich etwas bewegt oder verändert |
+| mittel | wo das Thema eine Kurve, ein Diagramm, eine Geometrie oder eine Struktur hat | zu einem neuen Konzept mit Bewegung |
+| wenig | nur wo die Prüfung ein Diagramm zeichnen oder ablesen lässt | nur auf Wunsch |
+| keine | nur auf Wunsch | nur auf Wunsch |
+
+Sagt der User „mehr Bilder“ oder „weniger“, wird die Zeile in den Eckdaten
+geändert.
+
+**Zwei Formen:**
+- **Skizze**: ein stehendes Bild im Tab (Kurve, Diagramm, Strukturbild,
+  Strahlengang), selbst gebaut, klein neben dem Block, zu dem es gehört. Sie zeigt
+  nie, was die Aufgabe zeichnen oder ablesen lässt, sonst misst das Review nichts;
+  diese Skizze kommt erst mit der Korrektur.
+- **Clip**: ein vertontes Erklärvideo, Mechanik in §„Clip“.
+
+**Reihenfolge:** Tab samt Skizze bauen, im Fortschritt eintragen, Clip anstoßen,
+übergeben (§„Häppchen übergeben“), warten. Der Clip zum aktuellen Tab ist kein
+Vorbauen: er wird gestartet, bevor der Wait beginnt, und läuft im Hintergrund.
+Der User wartet nie auf einen Render. Ist der Clip fertig, hängt ihn der
+Hauptkontext als Video-Block unten an denselben Tab.
+
+**Entscheidung buchen:** in `todo.md` beim Eintrag des Tabs eine Zeile
+`Bild: Skizze`, `Bild: Clip`, `Bild: Skizze + Clip` oder
+`Bild: keins (<Grund in wenigen Wörtern>)`. Ein Tab ohne diese Zeile ist nicht
+fertig gebaut. (Bis 29.10.2026 bekamen 4 von 25 Inhalts-Tabs einen Clip, und
+keine Session hat je gesagt, warum sie keinen gebaut hat.)
+
 ## Kursübersicht (Tab 0)
 
 Tab 0 ist der eine Übersichts-Tab des Kurses — der Vertrag aus §Kursübersicht der
@@ -127,7 +165,8 @@ ohne `select_tab`. Eine Korrektur darf auf den Tab verweisen („steht in
 ## Häppchen übergeben und einsammeln
 
 - **Ein Häppchen zur Zeit.** Das nächste wird erst gebaut, wenn das aktuelle
-  abgegeben und reviewt ist; Wartezeit wird nicht mit Vorbauen gefüllt. Liegt ein
+  abgegeben und reviewt ist; Wartezeit wird nicht mit Vorbauen gefüllt (das Bild
+  zum aktuellen Tab ist kein Vorbauen, §„Bild zu jedem Inhalts-Tab“). Liegt ein
   Tab ungerechnet, wird er wieder vorgelegt (§Ankommen), nicht durch einen neuen
   ersetzt. (EP2 2026: drei offene Tabs nebeneinander, eines davon drei Tage
   ungerechnet; User: „räum die Tabs mal auf".)
@@ -140,7 +179,8 @@ ohne `select_tab`. Eine Korrektur darf auf den Tab verweisen („steht in
     konnte"). Am Ende des korrigierten Tabs steht genau EIN `submit`-Knopf
     „Weiter → H03"; erst sein Klick löst `select_tab` aus. Wechselt er selbst,
     gilt das genauso.
-- Danach auf die Abgabe warten, siehe §„Auf den User warten".
+- Danach auf die Abgabe warten, siehe §„Auf den User warten". Der Clip zum Tab
+  ist zu diesem Zeitpunkt schon angestoßen.
 
 ## Auf den User warten
 
@@ -188,16 +228,13 @@ Gilt für jeden Wait: Übersichts-Bestätigung, Häppchen-Abgabe, „Noch eins?"
   Leiste**, samt Korrektur: der User will sie weiter sehen. Archivieren nur auf
   ausdrückliche Bitte; der Eintrag im Fortschritt bleibt in jedem Fall.
 
-## Erklär-Clip zu jedem Häppchen (Nutzervorgabe 17.09.2026)
+## Clip
 
-Nach jedem neuen Häppchen-Tab prüfen, ob ein kurzer Clip die Idee trägt — eine
-Funktion, die sich bewegt, eine Ableitung als Tangente, ein Vektor, der sich dreht, eine
-Konvergenz, eine Skizze, die entsteht. Trägt er sie, wird er gebaut, **während der User
-den Tab schon bearbeitet**, und als Video-Block unten an denselben Tab gehängt. Reine
-Wiedererkennung (Listen, Begriffspaare, Ankreuz-Drills) bekommt keinen Clip.
+Wann ein Tab einen Clip bekommt, sagt §„Bild zu jedem Inhalts-Tab“. Ein Clip
+trägt eine Idee, in der sich etwas bewegt: eine Funktion, die sich verändert, eine
+Ableitung als Tangente, ein Vektor, der sich dreht, eine Konvergenz, eine Skizze,
+die entsteht.
 
-- **Reihenfolge:** Tab bauen, im Fortschritt eintragen, übergeben (§„Häppchen
-  übergeben") — **dann** den Clip anstoßen. Der User wartet nie auf einen Render.
 - **Per Sonnet-Subagent, nicht im eigenen Kontext** (Token-Sparsamkeit; Nutzervorgabe 08.10.2026: Subagenten nie auf Opus): `Agent` mit
   `model: sonnet`, Auftrag = Skill `manim-kit` laden, eine Szene, 15–25 s, eine Idee,
   **1080p bei 60 fps** (`-q h`, manim-kit-Standard; Nutzervorgabe 18.09.2026, nie Draft-Qualität), unter 8 MB je Clip (längere Videos als Einzelclips, nicht herunterkomprimieren), die Standard-Tonspur/Musik des manim-kit **nicht** abbestellen;
@@ -214,7 +251,8 @@ Wiedererkennung (Listen, Begriffspaare, Ankreuz-Drills) bekommt keinen Clip.
   automatisch unter die Stimme — nichts extra einstellen. Der Hauptkontext lädt das mp4 hoch
   und hängt es als Video-Block unten an denselben Tab.
 - **Fail into silence:** scheitert der Render, bleibt es beim Textblock; kein Hinweis an
-  den User, keine zweite Runde. `manim-kit doctor` einmal pro Host.
+  den User, keine zweite Runde, in `todo.md` `Bild: Clip gescheitert`. `manim-kit
+  doctor` einmal pro Host.
 - **Nie in die Übersicht und nie in angepinnte Tabs.** Ein Clip an einer Korrektur (wiederkehrendes, geometrisches
   Fehlermuster) bleibt zusätzlich erlaubt, gleiche Mechanik.
 

@@ -95,6 +95,18 @@ subjects. Mid-session you can still switch verbally ("lass uns aufs Board") —
 the session carries on and reminds you to flip the menu switch for next time. A
 course whose own `CLAUDE.md` pins a fixed medium overrides the switch.
 
+## Visuals per course
+
+How many sketches and explainer clips a session makes depends on the subject.
+Each course says it in one Eckdaten row of its `CLAUDE.md`:
+`| **Visualisierung** | viel | mittel | wenig | keine; exceptions per topic |`.
+Without the row, `mittel` applies, and the next session proposes a level and
+asks you once. The medium file says what a level means there (on the board: a
+still sketch in the tab, a narrated manim clip for ideas with motion). The
+session decides while it builds each tab, before it hands the tab over, and
+writes the decision into `todo.md` as a `Bild: …` line, including the reason
+when there is no picture. Say "mehr Bilder" or "weniger" to change the level.
+
 ## Using it in another language
 
 Nothing structural is German; the strings are. To translate, edit the four

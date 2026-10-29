@@ -321,6 +321,14 @@ def test_prompts_orient_without_reencoding_the_procedure(tmp_path, monkeypatch):
     assert finder.is_file() and "blatt_finder.py" in TEMPLATE
     assert str(finder) in texts["course"] and str(finder) in texts["begleiter"]
     assert str(finder) not in texts["quickie"]
+    # the Visualisierung row: the launcher asks for it while it is missing,
+    # what a level means is the medium file's (here the board's)
+    assert "„Visualisierung“" in texts["course"] and "„Visualisierung“" in texts["begleiter"]
+    assert "„Visualisierung“" not in texts["quickie"]
+    assert "Visualisierung: fehlt" in texts["begleiter"]
+    assert "Bild zu jedem Inhalts-Tab" in texts["course"]
+    Path(a, "CLAUDE.md").write_text("| **Visualisierung** | viel |\n", encoding="utf-8")
+    assert "„Visualisierung“" not in m.opening_message(a)    # set: no nudge
     assert a in texts["course"]
     assert (a in texts["begleiter"] and b in texts["begleiter"]
             and "2/30" in texts["begleiter"])                # dossiers
@@ -421,6 +429,24 @@ def test_course_overview_parses_never_judges(tmp_path):
     assert m.course_overview(a) == "2026-01-05"
     assert m._overview_suffix(a) == ""
     assert "Übersicht: bestätigt 2026-01-05" in m._course_dossier(a)
+
+
+def test_visual_level_parses_never_judges(tmp_path):
+    """The Visualisierung row is the course's; the launcher reads the level
+    from the Eckdaten table and fails into silence. The stamped placeholder
+    and a prose mention do not count."""
+    (a,) = _courses(tmp_path, "Physik")
+    claude = Path(a, "CLAUDE.md")
+    assert m.course_visual_level(str(tmp_path / "weg")) is None   # no file
+    m._scaffold_workspace(str(tmp_path / "Neu"))
+    assert m.course_visual_level(str(tmp_path / "Neu")) is None   # template placeholder
+    claude.write_text("Visualisierung: viel wäre schön\n", encoding="utf-8")
+    assert m.course_visual_level(a) is None                       # prose, not the row
+    assert "Visualisierung: fehlt" in m._course_dossier(a)
+    claude.write_text("| **Fach** | Physik |\n| **Visualisierung** | Mittel; Optik viel |\n",
+                      encoding="utf-8")
+    assert m.course_visual_level(a) == "mittel"
+    assert "Visualisierung: mittel" in m._course_dossier(a)
 
 
 # ---- parsers of files the launcher does not own --------------------------
