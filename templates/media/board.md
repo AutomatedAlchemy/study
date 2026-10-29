@@ -89,7 +89,8 @@ geändert.
 - **Clip**: ein vertontes Erklärvideo, Mechanik in §„Clip“.
 
 **Reihenfolge:** Tab samt Skizze bauen, im Fortschritt eintragen, Clip anstoßen,
-übergeben (§„Häppchen übergeben“), warten. Der Clip zum aktuellen Tab ist kein
+die `Bild:`-Zeile buchen (unten), übergeben (§„Häppchen übergeben“), warten.
+Der Clip zum aktuellen Tab ist kein
 Vorbauen: er wird gestartet, bevor der Wait beginnt, und läuft im Hintergrund.
 Der User wartet nie auf einen Render. Ist der Clip fertig, hängt ihn der
 Hauptkontext als Video-Block unten an denselben Tab.
@@ -97,7 +98,8 @@ Hauptkontext als Video-Block unten an denselben Tab.
 **Entscheidung buchen:** in `todo.md` beim Eintrag des Tabs eine Zeile
 `Bild: Skizze`, `Bild: Clip`, `Bild: Skizze + Clip` oder
 `Bild: keins (<Grund in wenigen Wörtern>)`. Ein Tab ohne diese Zeile ist nicht
-fertig gebaut. (Bis 29.10.2026 bekamen 4 von 25 Inhalts-Tabs einen Clip, und
+fertig gebaut. Gehört der Tab zu keinem Kurs (eine Veranstaltung ohne Kursordner),
+gilt `mittel` und die Zeile entfällt; dafür wird keine Datei angelegt. (Bis 29.10.2026 bekamen 4 von 25 Inhalts-Tabs einen Clip, und
 keine Session hat je gesagt, warum sie keinen gebaut hat.)
 
 ## Kursübersicht (Tab 0)
@@ -170,7 +172,8 @@ ohne `select_tab`. Eine Korrektur darf auf den Tab verweisen („steht in
   Tab ungerechnet, wird er wieder vorgelegt (§Ankommen), nicht durch einen neuen
   ersetzt. (EP2 2026: drei offene Tabs nebeneinander, eines davon drei Tage
   ungerechnet; User: „räum die Tabs mal auf".)
-- Bauen immer mit `create_tab(select: false)` und im Fortschritt eintragen. Wann
+- Bauen immer mit `create_tab(select: false)`, samt Bild und `Bild:`-Zeile
+  (§„Bild zu jedem Inhalts-Tab“), und im Fortschritt eintragen. Wann
   der User auf den neuen Tab kommt, hängt davon ab, wo er gerade ist:
   - **Erstes Häppchen der Session** (er kommt gerade an): danach `select_tab`.
   - **Häppchen nach einem Review:** kein `select_tab`. Er liest gerade die

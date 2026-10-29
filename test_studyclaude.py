@@ -324,11 +324,14 @@ def test_prompts_orient_without_reencoding_the_procedure(tmp_path, monkeypatch):
     # the Visualisierung row: the launcher asks for it while it is missing,
     # what a level means is the medium file's (here the board's)
     assert "„Visualisierung“" in texts["course"] and "„Visualisierung“" in texts["begleiter"]
+    for name in ("course", "begleiter"):                     # the pointer in _LOOP_BRIEF
+        assert "entscheidest du beim Bauen" in texts[name], name
     assert "„Visualisierung“" not in texts["quickie"]
     assert "Visualisierung: fehlt" in texts["begleiter"]
     assert "Bild zu jedem Inhalts-Tab" in texts["course"]
     Path(a, "CLAUDE.md").write_text("| **Visualisierung** | viel |\n", encoding="utf-8")
-    assert "„Visualisierung“" not in m.opening_message(a)    # set: no nudge
+    assert "„Visualisierung“" not in m.opening_message(a)    # set: no nudge …
+    assert "entscheidest du beim Bauen" in m.opening_message(a)   # … but the pointer stays
     assert a in texts["course"]
     assert (a in texts["begleiter"] and b in texts["begleiter"]
             and "2/30" in texts["begleiter"])                # dossiers

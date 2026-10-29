@@ -391,6 +391,8 @@ _LOOP_BRIEF = (
     "je Fehler höchstens fünf Sätze. Danach baust du ohne Nachfrage das nächste Häppchen; "
     "frag nur nach, wenn die Abgabe leer oder nicht lesbar ist. "
     "Wie du es übergibst, sagt die Medium-Mechanik. "
+    "Ob ein Inhalts-Tab ein Bild bekommt, entscheidest du beim Bauen, nicht danach; "
+    "wie, sagt die Medium-Mechanik (§„Bild zu jedem Inhalts-Tab“ auf dem Board). "
     "Halte nach jedem Review in todo.md die Zeile „Fortschritt: x/y Häppchen“ aktuell — "
     "x = reviewte Häppchen, y = deine aktuelle Schätzung, wie viele Häppchen es insgesamt "
     "bis zur Klausurbereitschaft braucht (y darf sich mit jedem Review ändern). "
