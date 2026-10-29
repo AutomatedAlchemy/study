@@ -14,6 +14,10 @@ GitHub repos `AutomatedAlchemy/lernclaude` and `lernclaude-fau` became
 `studyclaude` and `studyclaude-fau`. There is no fallback for the old names.
 The German terms inside the tool (Lern-Loop, Häppchen, „lass uns lernen“) stay.
 
+The FAU variant (branch `fau`, GitHub `studyclaude-fau`: the fauclaude backend
+and the `fau:` models) was removed on 2026-10-29 (user): too specific. Its last
+state is the local tag `archiv/fau`. The checkout sits on `main`.
+
 ## The SSoT boundary (the load-bearing invariant)
 
 The study procedure — *which* sheets to open, the Häppchen rotation, the topic
@@ -188,8 +192,8 @@ overview board), found by the tab name. The repo is public and
 `test_no_personal_paths_and_no_builtin_default` keeps personal data out of
 `main.py`; the board is the user's own and reaches every agent on the account.
 The prompt names only the board and the tab, never how the MCP tools work
-(same boundary as `templates/media/board.md`). Without a board tool (fauclaude,
-Xournal++ users) or without the tab, the session says so in one sentence and asks
+(same boundary as `templates/media/board.md`). Without a board tool (Xournal++
+users) or without the tab, the session says so in one sentence and asks
 in chat. The board with the profile is no course board; course work goes on the
 course's own board, as the medium file says.
 
@@ -435,21 +439,6 @@ that value falls back to `DEFAULT_MODEL` instead of reaching a launch.
 
 ## Commits
 
-- **Pick the branch before the first edit.** The checkout sits on `fau`, but
-  only the FAU layer belongs there: the fauclaude backend, the `fau:` models,
-  FAU names and URLs. Everything else goes on `main`, the public base version.
-  On 2026-09-22 two sessions committed general work on `fau` because this rule
-  was missing here, and it had to be ported by hand.
-- **Commit general work on `main` without switching the shared checkout:**
-  `git worktree add <scratch>/wt main`, edit, test and commit there, then
-  `git worktree remove`. Bring it into `fau` with `git merge main` in the
-  checkout. Merge, never rebase: `fau` is published on `fau/main`, and a rebase
-  rewrites those commits.
-- **A general change that calls FAU-layer code** (`_backend_for_model`,
-  `_discover_fau_models`, the fauclaude test) is split: the general part on
-  `main`, the FAU addition as its own commit on `fau` after the merge.
-- **Check before you report:** `git log --oneline --no-merges main..fau` lists
-  only FAU-layer commits.
 - **German summaries, as they are now**, and one concern per commit. Commit by
   pathspec (`git commit -m "…" -- a b`) so an unrelated dirty file does not ride
   along; `git add` only new paths.
