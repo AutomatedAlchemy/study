@@ -41,6 +41,10 @@ def spawns(monkeypatch, tmp_path):
     monkeypatch.setenv("STUDY_REGISTRY", str(tmp_path / "registry.json"))
     monkeypatch.setattr(m, "ENGINE", "claude")
     monkeypatch.setattr(m, "_WARNED", set())
+    monkeypatch.setenv("STUDY_ROOT", str(tmp_path))
+    monkeypatch.setenv("STUDY_CONFIG_DIR", str(tmp_path / "cfg"))
+    for prefix in ("STUDYCLAUDE_", "OPENSTUDY_"):
+        monkeypatch.delenv(prefix + "ROOT", raising=False)
     monkeypatch.delenv("STUDY_ENGINE", raising=False)
     monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path / "run"))
     monkeypatch.delenv("STUDY_DEFAULT_WORKSPACE", raising=False)
@@ -1092,4 +1096,142 @@ def test_the_registry_is_saved_again_once_it_is_readable(tmp_path):
     data = m._load_registry()
     data["default"] = "/a"
     m._save_registry(data)
-    assert json.loads(reg.read_text())["default"] == "/a"
+    assert m._load_registry()["default"] == "/a"
+
+
+# --- the course list file (courses.py) -----------------------------------------------
+
+import courses as cl  # noqa: E402
+
+
+def _list_file(tmp_path):
+    return cl.file_path(tmp_path)
+
+
+def test_courses_are_stored_beside_the_courses_and_not_in_the_registry(tmp_path):
+    a, b = _courses(tmp_path, "a", "b")
+    m._register_workspace(a); m._register_workspace(b)
+    assert [c["path"] for c in json.loads(_list_file(tmp_path).read_text())["courses"]] == ["a", "b"]
+    assert json.loads(m._registry_path().read_text())["workspaces"] == []
+    assert m._load_registry()["workspaces"] == [str(Path(a).resolve()), str(Path(b).resolve())]
+
+
+def test_an_old_registry_moves_its_courses_into_the_file_once(tmp_path):
+    a, b = _courses(tmp_path, "a", "b")
+    _write(m._registry_path(), {"workspaces": [a, b], "default": b, "migrated": True,
+                                "engines": {"claude": {"model": "sonnet"}}})
+    data = m._load_registry()
+    assert data["workspaces"] == [a, b] and data["default"] == b and data["model"] == "sonnet"
+    on_disk = json.loads(m._registry_path().read_text())
+    assert on_disk["workspaces"] == [] and on_disk["engines"]["claude"]["model"] == "sonnet"
+    assert on_disk["default"] == cl.make_id("b")                   # stored as an id
+    assert m._registry_path().with_name("registry.json.pre-courses").exists()
+    # once: a course removed afterwards is not brought back by the old list
+    data["workspaces"].remove(a)
+    m._save_registry(data)
+    assert m._load_registry()["workspaces"] == [b]
+
+
+def test_the_root_is_guessed_once_for_an_existing_install(tmp_path, monkeypatch):
+    monkeypatch.delenv("STUDY_ROOT")
+    sub = tmp_path / "Studium"; (sub / "S" / "a").mkdir(parents=True); (sub / "L" / "b").mkdir(parents=True)
+    _write(m._registry_path(), {"workspaces": [str(sub / "S" / "a"), str(sub / "L" / "b")],
+                                "migrated": True})
+    m._load_registry()
+    assert cl.read_root(None) == str(sub.resolve())
+    assert [c["path"] for c in json.loads(cl.file_path(sub).read_text())["courses"]] == ["S/a", "L/b"]
+
+
+def test_adding_a_course_without_a_root_names_the_setting(tmp_path, monkeypatch, capsys):
+    monkeypatch.delenv("STUDY_ROOT")
+    a = _courses(tmp_path, "a")[0]
+    monkeypatch.setattr(sys, "argv", ["study", "--register", a])
+    assert m.main() == 1
+    err = capsys.readouterr().err
+    assert "STUDY_ROOT" in err and "--set-root" in err
+    assert not cl.file_path(tmp_path).exists()
+
+
+def test_set_root_then_a_course_can_be_added(tmp_path, monkeypatch, capsys):
+    monkeypatch.delenv("STUDY_ROOT")
+    a = _courses(tmp_path, "a")[0]
+    monkeypatch.setattr(sys, "argv", ["study", "--set-root", str(tmp_path)])
+    assert m.main() == 0
+    m._register_workspace(a)
+    assert [c["path"] for c in json.loads(cl.file_path(tmp_path).read_text())["courses"]] == ["a"]
+
+
+def test_the_default_is_stored_as_an_id_and_follows_a_moved_course(tmp_path):
+    a, b = _courses(tmp_path, "a", "b")
+    m._register_workspace(a); m._register_workspace(b, make_default=True)
+    assert json.loads(m._registry_path().read_text())["default"] == cl.make_id("b")
+    doc = json.loads(cl.file_path(tmp_path).read_text())
+    doc["courses"][1]["path"] = "b_renamed"                         # moved by hand
+    cl.file_path(tmp_path).write_text(json.dumps(doc))
+    assert m._load_registry()["default"] == str((tmp_path / "b_renamed").resolve())
+
+
+def test_a_stale_session_cannot_bring_back_a_removed_course(tmp_path):
+    a, b, c = _courses(tmp_path, "a", "b", "c")
+    for ws in (a, b):
+        m._register_workspace(ws)
+    stale = m._load_registry()                       # a menu opened an hour ago
+    m._unregister_workspace(a)                       # removed elsewhere meanwhile
+    m._register_workspace(c)                         # and another added
+    stale["default"] = b
+    m._save_registry(stale)                          # the stale menu saves a setting
+    assert [Path(w).name for w in m._load_registry()["workspaces"]] == ["b", "c"]
+
+
+def test_a_session_applies_only_its_own_changes(tmp_path):
+    a, b, c = _courses(tmp_path, "a", "b", "c")
+    m._register_workspace(a)
+    mine = m._load_registry()
+    m._register_workspace(b)                         # a sibling adds while my menu is open
+    mine["workspaces"].append(str(Path(c).resolve()))
+    m._save_registry(mine)
+    assert [Path(w).name for w in m._load_registry()["workspaces"]] == ["a", "b", "c"]
+
+
+def test_an_unreadable_list_blocks_course_edits_but_not_settings(tmp_path, capsys):
+    a, b = _courses(tmp_path, "a", "b")
+    m._register_workspace(a)
+    cl.file_path(tmp_path).write_text('{"version": 1, "courses": [', encoding="utf-8")
+    data = m._load_registry()
+    assert data["workspaces"] == [] and "nicht lesbar" in capsys.readouterr().err
+    data["model"] = "sonnet"
+    m._save_registry(data)                           # settings still save
+    assert json.loads(m._registry_path().read_text())["engines"]["claude"]["model"] == "sonnet"
+    data["workspaces"].append(str(Path(b).resolve()))
+    with pytest.raises(cl.CoursesError):
+        m._save_registry(data)
+    assert cl.file_path(tmp_path).read_text(encoding="utf-8") == '{"version": 1, "courses": ['
+
+
+def test_a_conflict_copy_is_shown_in_the_menu_header_and_by_list(tmp_path, capsys, monkeypatch):
+    a = _courses(tmp_path, "a")[0]
+    m._register_workspace(a)
+    assert m._conflict_banner_lines() == []
+    conflict = cl.file_path(tmp_path).parent / "courses.sync-conflict-20261031-181500-ABCDEFG.json"
+    conflict.write_text("{}", encoding="utf-8")
+    (text, severity), = m._conflict_banner_lines()
+    assert "Sync-Konflikt" in text and conflict.name in text and severity == "hot"
+    monkeypatch.setattr(sys, "argv", ["study", "--list"])
+    assert m.main() == 0
+    assert conflict.name in capsys.readouterr().out
+    assert [Path(w).name for w in m._load_registry()["workspaces"]] == ["a"]   # not merged
+
+
+def test_the_material_root_is_the_study_root(tmp_path, monkeypatch):
+    assert m._material_root() == str(tmp_path)
+    monkeypatch.delenv("STUDY_ROOT")
+    assert m._material_root() == str(Path.home())
+
+
+def test_comparing_courses_ignores_the_spelling_of_the_path(tmp_path):
+    a = _courses(tmp_path, "a")[0]
+    m._register_workspace(a)
+    m._register_workspace(str(Path(a) / ".." / "a"))
+    assert len(m._load_registry()["workspaces"]) == 1
+    assert m._unregister_workspace(a + "/")
+    assert m._load_registry()["workspaces"] == []

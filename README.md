@@ -143,16 +143,30 @@ Every variable is read as `STUDY_<NAME>`; the old `STUDYCLAUDE_<NAME>` and
 | `STUDY_ENGINE` | Default engine when `--engine` is not given (`claude` \| `opencode`) |
 | `STUDY_REGISTRY` | Path to the registry (default: `./data/registry.json`) |
 | `STUDY_DEFAULT_WORKSPACE` | Override the registered default for one launch |
-| `STUDY_ROOT` | Where guided onboarding starts searching (default: `$HOME`) |
+| `STUDY_ROOT` | The study root on this host: the course list lives in `<root>/.study/` and onboarding starts searching there (else `host.json`, else `$HOME` for onboarding only) |
+| `STUDY_CONFIG_DIR` | Where `host.json` lives (default `~/.config/study`) |
 | `STUDY_EXAMS` | Markdown file with your exam-date table (banner off when unset; registry key `exams_file` does the same) |
 | `STUDY_MEDIUM` | Override the working medium for one launch (`xournalpp` \| `board`) |
 
-Courses and settings live in the gitignored `data/registry.json`, in the tool's own
-directory rather than `~/.config`, so a synced or shared checkout carries the same
-course list on every machine. Model, effort and medium are stored per engine under
-`engines.<engine>`. The first start migrates the two old layouts once: a registry with
-top-level `model`/`effort`/`medium` (studyclaude), the old openstudy registry and
-`~/.config/study-courses.json`. After that, a course you remove stays removed.
+**Where things live.** The course list is `<study root>/.study/courses.json`, next to your
+courses (versioned, one entry per course with a stable `id`, paths relative to the root).
+The study root is per host: `STUDY_ROOT`, else `study --set-root DIR` (stored in
+`~/.config/study/host.json`, `%APPDATA%\study\host.json` on Windows). Put the root in a synced
+folder and the list is the same on every machine. Everything else (default course, model,
+effort, medium, exam file, Quickie streak) is in the gitignored `data/registry.json`; model,
+effort and medium are stored per engine under `engines.<engine>`, and the default is a course
+`id`.
+
+Courses are added and removed as operations under a lock, so two menus open at once do not
+undo each other. A Syncthing conflict copy of the list (`courses.sync-conflict-*.json`) is
+shown in the menu header and by `--list`; it is not merged. If the list cannot be read, the
+menu opens empty, course changes are refused and nothing is overwritten.
+
+The first start migrates the older layouts once: a registry with top-level
+`model`/`effort`/`medium` (studyclaude), the old openstudy registry,
+`~/.config/study-courses.json`, and the course list in the registry. The root is guessed from
+your courses (their common folder) and printed. The registry is copied to
+`registry.json.pre-courses` first. After that, a course you remove stays removed.
 
 Sessions launch on **Opus at `medium` effort**. Medium is deliberate: the loop is
 interactive tutoring, where latency is felt more than reasoning depth helps. `o`

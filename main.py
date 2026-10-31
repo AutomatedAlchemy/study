@@ -137,15 +137,23 @@ def _command_name() -> str:
 if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
+import courses as course_list  # noqa: E402  (sibling module, see above)
+
 
 def _material_root() -> str:
     """Where the onboarding session starts browsing for course material.
 
-    Set ``STUDY_ROOT`` to the folder your study material lives under (the
-    parent of your per-subject workspaces). Defaults to ``$HOME``, which just
-    means onboarding starts its search a little wider.
+    The study root (``STUDY_ROOT`` or ``study --set-root``): the folder your study
+    material lives under, the parent of your per-subject workspaces. Without one
+    it is ``$HOME``, which just means onboarding starts its search a little wider.
     """
-    return os.path.expanduser(_env("ROOT", "~"))
+    return _study_root() or os.path.expanduser("~")
+
+
+def _study_root() -> "str | None":
+    """The folder the course list is relative to on this host: ``STUDY_ROOT``, else
+    ``host.json`` (``study --set-root``), else None."""
+    return course_list.read_root(_env("ROOT"))
 
 
 def _default_workspace() -> "str | None":
@@ -942,7 +950,76 @@ def _load_registry() -> dict:
     for key in _ENGINE_KEYS:
         if key in mine:
             data[key] = mine[key]
+    if not data.get("_registry_unreadable"):
+        _attach_courses(data)
     return data
+
+
+# ----------------------------------------------------------------------------
+# the course list: <root>/.study/courses.json, see courses.py
+# ----------------------------------------------------------------------------
+# In memory `data["workspaces"]` stays a list of absolute paths and `data["default"]`
+# a path or a mode sentinel, so the menu and every caller work as before. On disk the
+# courses are in the versioned file beside them and `default` is a course id. A save
+# turns what changed since the load into add/remove operations (`_save_registry`).
+
+def _attach_courses(data: dict) -> None:
+    legacy = [w for w in data.get("workspaces") or [] if isinstance(w, str)]
+    root = _study_root()
+    if root is None and legacy:
+        guess = course_list.common_root(legacy)     # an existing install: guess once
+        if guess:
+            root = course_list.write_root(guess)
+            _warn_once(f"Hinweis: Lern-Root auf {root} gesetzt (ändern: study --set-root ORDNER).")
+    data["_courses_root"] = root
+    if root is None:
+        data["workspaces"] = legacy
+        data["_courses_loaded"] = list(legacy)
+        data["_courses_error"] = course_list.RootNotSet() if legacy else None
+        return
+    try:
+        if legacy:
+            _move_courses_into_file(root, legacy)
+        entries = course_list.read_courses(root)
+    except course_list.CoursesError as exc:
+        _warn_once(f"Warnung: {exc}")
+        data["workspaces"], data["_courses_loaded"] = [], []
+        data["_courses_error"] = exc
+        return
+    paths = [course_list.resolve_path(root, c["path"]) for c in entries]
+    ids = {course_list.norm(p): c.get("id") or course_list.make_id(c["path"])
+           for p, c in zip(paths, entries)}
+    data["workspaces"] = paths
+    data["_courses_loaded"] = list(paths)
+    data["_course_ids"] = ids
+    data["_courses_error"] = None
+    default = data.get("default")
+    by_id = {i: p for p, i in zip(paths, ids.values())}
+    if default in by_id:
+        data["default"] = by_id[default]
+
+
+def _move_courses_into_file(root: str, legacy: list) -> None:
+    """The registry's own list (any layout before the course file) goes into the file, once.
+
+    The registry is copied aside first and its list emptied afterwards; `default` is
+    stored as an id from here on. Adding is idempotent, so a crash in between only
+    repeats this.
+    """
+    registry = _registry_path()
+    if registry.exists():
+        backup = registry.with_name(registry.name + ".pre-courses")
+        if not backup.exists():
+            shutil.copy2(registry, backup)
+    entries = [course_list.make_course(root, w) for w in legacy]
+    course_list.apply(root, add=entries)
+    raw = _read_json(registry)
+    ids = {course_list.norm(w): e["id"] for w, e in zip(legacy, entries)}
+    default = raw.get("default")
+    if isinstance(default, str) and course_list.norm(default) in ids:
+        raw["default"] = ids[course_list.norm(default)]
+    raw["workspaces"] = []
+    _atomic_write(registry, raw)
 
 
 def _save_registry(data: dict) -> None:
@@ -950,8 +1027,34 @@ def _save_registry(data: dict) -> None:
         _warn_once(f"Warnung: {_registry_path()} ist nicht lesbar und bleibt unverändert; "
                    "Einstellungen werden nicht gespeichert.")
         return
+    caller, data = data, dict(data)
     out = dict(data)
     legacy = out.pop("_legacy_top", None)
+    workspaces = [w for w in out.pop("workspaces", []) if isinstance(w, str)]
+    loaded = out.pop("_courses_loaded", None) or []
+    root = out.pop("_courses_root", None) or _study_root()
+    error = out.pop("_courses_error", None)
+    ids = dict(out.pop("_course_ids", None) or {})
+    known = {course_list.norm(w) for w in loaded}
+    added = [w for w in workspaces if course_list.norm(w) not in known]
+    now = {course_list.norm(w) for w in workspaces}
+    removed = [w for w in loaded if course_list.norm(w) not in now]
+    if added or removed:
+        if error is not None:
+            raise error
+        if root is None:
+            raise course_list.RootNotSet()
+        new = [course_list.make_course(root, w) for w in added]
+        course_list.apply(root, add=new, remove=[ids[course_list.norm(w)] for w in removed
+                                                 if course_list.norm(w) in ids])
+        for w, entry in zip(added, new):
+            ids[course_list.norm(w)] = entry["id"]
+        caller["_courses_loaded"] = list(workspaces)
+        caller["_course_ids"] = ids
+        caller["_courses_root"] = root
+    default = out.get("default")
+    if isinstance(default, str) and course_list.norm(default) in ids:
+        out["default"] = ids[course_list.norm(default)]
     # An unmigrated registry keeps its top-level keys for claude: they are still the
     # old claude settings, and `_migrate_legacy` moves them once it can run.
     if out.get("migrated") or ENGINE != "claude":
@@ -963,7 +1066,13 @@ def _save_registry(data: dict) -> None:
         out["engines"] = engines
     if legacy:
         out.update(legacy)
+    out["workspaces"] = []
     _atomic_write(_registry_path(), out)
+
+
+def _has_workspace(data: dict, path: str) -> bool:
+    """Whether ``path`` is a registered course, however the two are spelled."""
+    return any(course_list.same_path(w, path) for w in data["workspaces"])
 
 
 def _ensure_default(data: dict) -> dict:
@@ -979,7 +1088,7 @@ def _ensure_default(data: dict) -> dict:
     from another host's registry, a course that was unregistered) counts as
     unset — the menu would otherwise try to launch it as a folder."""
     default = data.get("default")
-    if default and default not in data["workspaces"] and default not in _SENTINELS:
+    if default and default not in _SENTINELS and not _has_workspace(data, default):
         data["default"] = None
     if not data["default"] and data["workspaces"]:
         data["default"] = _BEGLEITER_SENTINEL
@@ -991,7 +1100,7 @@ def _register_workspace(path: str, make_default: bool = False) -> str:
     default means the Begleiter (`_ensure_default`)."""
     data = _load_registry()
     ap = _abs_path(path)
-    if ap not in data["workspaces"]:
+    if not _has_workspace(data, ap):
         data["workspaces"].append(ap)
     if make_default:
         data["default"] = ap
@@ -1016,7 +1125,7 @@ def _set_default(path: str) -> str:
         return "Quickie"
     data = _load_registry()
     ap = _abs_path(path)
-    if ap not in data["workspaces"]:
+    if not _has_workspace(data, ap):
         data["workspaces"].append(ap)
     data["default"] = ap
     _save_registry(data)
@@ -1029,10 +1138,10 @@ def _unregister_workspace(path: str) -> bool:
     to the first remaining workspace (or None)."""
     data = _load_registry()
     ap = _abs_path(path)
-    if ap not in data["workspaces"]:
+    if not _has_workspace(data, ap):
         return False
-    data["workspaces"].remove(ap)
-    if data["default"] == ap:
+    data["workspaces"] = [w for w in data["workspaces"] if not course_list.same_path(w, ap)]
+    if isinstance(data["default"], str) and course_list.same_path(data["default"], ap):
         data["default"] = None      # _ensure_default recomputes (tutor / sole course)
     _save_registry(data)
     return True
@@ -1187,6 +1296,15 @@ def _exam_banner_lines(limit: int = 5) -> list:
         severity = "hot" if days <= 3 else "soon" if days <= 10 else "calm"
         lines.append((f"   {left:>9}  ·  {stamp:<16}  ·  {label}", severity))
     return lines
+
+
+def _conflict_banner_lines() -> list:
+    """A sync conflict copy of the course list, as menu header rows: shown, never merged."""
+    root = _study_root()
+    if not root:
+        return []
+    return [(f"   ⚠ Sync-Konflikt in der Kursliste: {p.name}: prüfen, dann löschen", "hot")
+            for p in course_list.conflict_copies(root)]
 
 
 # ----------------------------------------------------------------------------
@@ -2084,7 +2202,7 @@ def _menu_loop(stdscr, data: dict):
     autostart = bool(default) and bool(workspaces)
     interacted = False
     start = time.monotonic()
-    exams = _exam_banner_lines()   # read once: the menu lives for seconds, not hours
+    exams = _exam_banner_lines() + _conflict_banner_lines()   # read once: the menu lives for seconds, not hours
     progress = {ws: _progress_suffix(ws) + _overview_suffix(ws) for ws in workspaces}  # same lifetime
     medium = str(data.get("medium") or "xournalpp")
     if medium not in _MEDIA:
@@ -2330,7 +2448,7 @@ def _do_install_remove(remove: bool, workspace: "str | None" = None,
     return 0
 
 
-def main() -> int:
+def _main() -> int:
     parser = argparse.ArgumentParser(prog="study", description=str(ENTRIES["claude"]["desc"]).replace("Claude", "Claude/opencode"))
     parser.add_argument("--engine", choices=ENGINES, default=None,
                         help="agent to run the session in (default: claude; STUDY_ENGINE overrides the default)")
@@ -2369,6 +2487,9 @@ def main() -> int:
                         choices=list(_EFFORTS),
                         help="set the effort the sessions launch with (low | medium | high | xhigh | max); "
                              "also switched in the menu with `e`")
+    parser.add_argument("--set-root", metavar="DIR", dest="set_root", default=None,
+                        help="the folder your study material lives under on this host; the "
+                             "course list is kept beside it (STUDY_ROOT overrides)")
     parser.add_argument("--set-default", metavar="PATH", dest="set_default", default=None,
                         help="set PATH as the menu's default (auto-selected after 10s); "
                              "the literals `begleiter` / `quickie` make the "
@@ -2400,6 +2521,9 @@ def main() -> int:
             print(("* " if w == data["default"] else "  ") + w + _progress_suffix(w) + _overview_suffix(w))
         print(f"Userspace: {_MEDIUM_LABELS[_current_medium()]}")
         print(f"Modell: {_model_label(_current_model())}   Effort: {_select_effort()}")
+        print(f"Root: {_study_root() or '— (STUDY_ROOT nicht gesetzt)'}")
+        for text, _severity in _conflict_banner_lines():
+            print(text.strip())
         return 0
     if args.begleiter:
         data = _ensure_default(_load_registry())
@@ -2438,6 +2562,10 @@ def main() -> int:
     if args.set_effort:
         print("Effort:", _EFFORT_LABELS[_set_effort(args.set_effort)])
         return 0
+    if args.set_root:
+        root = course_list.write_root(args.set_root)
+        print(f"Root: {root}   (Kursliste: {course_list.file_path(root)})")
+        return 0
     if args.set_default:
         print("Default:", _set_default(args.set_default))
         return 0
@@ -2474,6 +2602,14 @@ def main() -> int:
         print("konsole --workdir", ws, "-e \\\n  " + " ".join(shown))
         return 0
     return launch(ws)
+
+
+def main() -> int:
+    try:
+        return _main()
+    except course_list.CoursesError as exc:
+        print(f"Fehler: {exc}", file=sys.stderr)
+        return 1
 
 
 if __name__ == "__main__":

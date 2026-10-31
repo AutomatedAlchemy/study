@@ -403,33 +403,41 @@ because the Gärtner prompt relies on "trägt nur aus, löscht nichts".
 
 ## Tool-local state
 
-The registry lives at `data/registry.json`, anchored to `SCRIPT_DIR` — **not**
-`~/.config`. Rationale: this is run from a checkout that is shared or replicated
-across several machines, and per-host config silently diverges (a course list once
-showed three courses on one host and one on another). Keeping it beside the tool
-makes the course list travel with the checkout.
+Two places, by what they are:
 
-(2026-10-31, user: for a few hours the course list lived in `~/.config/study-courses.json`
-so that studyclaude and openstudy, then two repos, could share it. With one tool that
-reason is gone and the list is back in the registry. Step 3 of
-`../shared-course-list-proposal.md` moves it again, beside the courses.)
+- **The course list** is `<root>/.study/courses.json` (`courses.py`): beside the courses,
+  versioned (`{"version": 1, "courses": [{"id", "name", "path", ...}]}`), `path` relative to
+  the root or absolute, ids derived from the stored path (so two hosts that import the same
+  list agree) and kept for good once written. The root is per host: `STUDY_ROOT`, else
+  `~/.config/study/host.json` (`STUDY_CONFIG_DIR` moves it). Reason (user, 2026-10-31): the
+  list must mean the same on every machine and travel with sync, which a per-host file in
+  `~/.config` or a file beside the tool could not do for the two engines and for Windows.
+- **Everything else** (`default`, `exams_file`, `quickies`, `meta`, and per engine under
+  `engines.<engine>` `model`/`effort`/`medium`) is `data/registry.json`, anchored to
+  `SCRIPT_DIR`. Gitignored runtime state.
 
-Shared keys: `workspaces`, `default`, `exams_file`, `quickies`, `meta`. Per engine, under
-`engines.<engine>`: `model`, `effort`, `medium`. In memory the active engine's three sit
-at the top level of the dict `_load_registry` returns (the menu reads `data["model"]`),
-and `_save_registry` folds them back. `"migrated": true` marks that `_migrate_legacy` ran:
-it reads a registry with top-level `model`/`effort`/`medium` (the old studyclaude layout),
-the old openstudy registry and `~/.config/study-courses.json` once, and a course removed
-afterwards must not come back — never remove that marker check.
-
-Consequences to preserve:
-- The path takes a `STUDY_REGISTRY` override so tests can redirect it to `tmp_path`.
-  Every registry test relies on this. A redirected registry never reads the user's real
-  legacy files (`_legacy_sources` returns nothing).
-- It is gitignored. It's mutable runtime state; tracking it would leave
-  `git status` permanently dirty and invite merge conflicts.
-- Two machines writing it in the same sync window can produce a `*.sync-conflict-*`
-  copy — harmless, delete the loser.
+Rules to keep:
+- **Changes to the list are operations**: `courses.apply` locks (`fcntl`), re-reads, applies
+  add/remove and writes. `_save_registry` turns what differs from the snapshot taken at load
+  (`_courses_loaded`) into those operations; it never writes the whole list back. A stale
+  menu therefore cannot bring back a course another process removed. After a write the
+  caller's snapshot is updated, so saving one dict twice works.
+- **In memory** `data["workspaces"]` is absolute paths and `data["default"]` a path or a mode
+  sentinel, so every caller is unchanged; on disk `default` is a course id. Compare paths with
+  `course_list.same_path`, never with `==`.
+- **Never overwrite what cannot be read**: an unreadable registry is copied to
+  `registry.json.unreadable` and not saved over; an unreadable or newer-version list raises
+  `CoursesError` on any change (settings still save); a missing root raises `RootNotSet`,
+  which names `STUDY_ROOT` and `--set-root`.
+- **Migration runs once** (`"migrated"` for the settings and old sources, the empty
+  `workspaces` plus the existing file for the list). The list's first move guesses the root
+  from the common folder of the old courses and copies the registry to
+  `registry.json.pre-courses`. Adding is idempotent, so a crash in between only repeats it.
+- Sync conflict copies are reported (`_conflict_banner_lines`), not merged: a union cannot tell
+  "removed on one host" from "never there".
+- Locking uses `fcntl`; on Windows the lock is skipped (the launchers do not run there yet).
+- The `STUDY_REGISTRY` override lets tests redirect the registry; every test also sets
+  `STUDY_ROOT` and `STUDY_CONFIG_DIR` to `tmp_path`, so none reads the user's real list.
 
 ## One engine, many icons
 
