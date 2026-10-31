@@ -854,3 +854,15 @@ def test_a_settings_save_leaves_a_sibling_addition_alone(tmp_path, monkeypatch):
     data["model"] = "opus"
     main._save_registry(data)                          # courses unchanged by this tool
     assert json.loads(shared.read_text())["workspaces"] == ["/a", "/b"]
+
+
+def test_one_dict_saved_twice_writes_each_change(tmp_path, monkeypatch):
+    import json
+    main, shared, own = _shared_env(tmp_path, monkeypatch)
+    data = main._load_registry()
+    data["workspaces"].append("/x")
+    main._save_registry(data)
+    assert json.loads(shared.read_text())["workspaces"] == ["/x"]
+    data["workspaces"].remove("/x")
+    main._save_registry(data)
+    assert json.loads(shared.read_text())["workspaces"] == []

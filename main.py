@@ -763,7 +763,7 @@ def _save_registry(data: dict) -> None:
     A session that loaded the list read-only never writes it, even when the file
     is readable again by now: the cached list it shows may be stale.
     """
-    data = dict(data)
+    caller, data = data, dict(data)
     readonly = data.pop("_courses_readonly", None)
     loaded = data.pop("_courses_loaded", None)
     shared = _courses_path()
@@ -776,6 +776,7 @@ def _save_registry(data: dict) -> None:
                     f"Kursliste nicht lesbar ({shared}); Kurse bleiben unverändert.")
             _write_courses(shared, courses)
             _refresh_cache(courses)
+            caller["_courses_loaded"] = courses   # the next save compares with this write
         data = dict(data, workspaces=[])
     _atomic_write(_registry_path(), data)
 
