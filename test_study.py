@@ -1235,3 +1235,19 @@ def test_comparing_courses_ignores_the_spelling_of_the_path(tmp_path):
     assert len(m._load_registry()["workspaces"]) == 1
     assert m._unregister_workspace(a + "/")
     assert m._load_registry()["workspaces"] == []
+
+
+def test_the_default_keeps_the_id_the_file_already_has(tmp_path):
+    a = _courses(tmp_path, "a")[0]
+    cl.apply(tmp_path, add=[{"id": "chost-a", "name": "a", "path": "a"}])   # written by another host
+    m._register_workspace(a, make_default=True)                         # same path: add is a no-op
+    assert json.loads(m._registry_path().read_text())["default"] == "chost-a"
+    assert m._load_registry()["default"] == str(Path(a).resolve())
+
+
+def test_the_move_of_an_old_list_keeps_existing_ids_for_the_default(tmp_path):
+    a = _courses(tmp_path, "a")[0]
+    cl.apply(tmp_path, add=[{"id": "chost-a", "name": "a", "path": "a"}])
+    _write(m._registry_path(), {"workspaces": [a], "default": a, "migrated": True})
+    assert m._load_registry()["default"] == str(Path(a).resolve())
+    assert json.loads(m._registry_path().read_text())["default"] == "chost-a"

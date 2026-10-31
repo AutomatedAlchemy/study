@@ -987,8 +987,7 @@ def _attach_courses(data: dict) -> None:
         data["_courses_error"] = exc
         return
     paths = [course_list.resolve_path(root, c["path"]) for c in entries]
-    ids = {course_list.norm(p): c.get("id") or course_list.make_id(c["path"])
-           for p, c in zip(paths, entries)}
+    ids = _ids_by_path(root, entries)
     data["workspaces"] = paths
     data["_courses_loaded"] = list(paths)
     data["_course_ids"] = ids
@@ -1011,15 +1010,19 @@ def _move_courses_into_file(root: str, legacy: list) -> None:
         backup = registry.with_name(registry.name + ".pre-courses")
         if not backup.exists():
             shutil.copy2(registry, backup)
-    entries = [course_list.make_course(root, w) for w in legacy]
-    course_list.apply(root, add=entries)
+    stored = course_list.apply(root, add=[course_list.make_course(root, w) for w in legacy])
     raw = _read_json(registry)
-    ids = {course_list.norm(w): e["id"] for w, e in zip(legacy, entries)}
+    ids = _ids_by_path(root, stored)      # the file is authoritative, not a freshly derived id
     default = raw.get("default")
     if isinstance(default, str) and course_list.norm(default) in ids:
         raw["default"] = ids[course_list.norm(default)]
     raw["workspaces"] = []
     _atomic_write(registry, raw)
+
+
+def _ids_by_path(root: str, entries: list) -> dict:
+    return {course_list.norm(course_list.resolve_path(root, c["path"])):
+            c.get("id") or course_list.make_id(c["path"]) for c in entries}
 
 
 def _save_registry(data: dict) -> None:
@@ -1045,10 +1048,9 @@ def _save_registry(data: dict) -> None:
         if root is None:
             raise course_list.RootNotSet()
         new = [course_list.make_course(root, w) for w in added]
-        course_list.apply(root, add=new, remove=[ids[course_list.norm(w)] for w in removed
-                                                 if course_list.norm(w) in ids])
-        for w, entry in zip(added, new):
-            ids[course_list.norm(w)] = entry["id"]
+        stored = course_list.apply(root, add=new, remove=[ids[course_list.norm(w)] for w in removed
+                                                          if course_list.norm(w) in ids])
+        ids = _ids_by_path(root, stored)  # an entry that was already there keeps its id
         caller["_courses_loaded"] = list(workspaces)
         caller["_course_ids"] = ids
         caller["_courses_root"] = root
