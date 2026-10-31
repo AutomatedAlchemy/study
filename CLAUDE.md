@@ -383,15 +383,25 @@ because the Gärtner prompt relies on "trägt nur aus, löscht nichts".
 
 ## Tool-local state
 
-The registry lives at `data/registry.json`, anchored to `SCRIPT_DIR` — **not**
-`~/.config`. Rationale: this is run from a checkout that is shared or replicated
-across several machines, and per-host config silently diverges (a course list once
-showed three courses on one host and one on another). Keeping it beside the tool
-makes the course list travel with the checkout.
+The registry lives at `data/registry.json`, anchored to `SCRIPT_DIR`, beside the tool.
+Since 2026-10-31 the **course list** (`workspaces`) is the exception: it is shared with
+openstudy in `~/.config/study-courses.json` (`STUDY_COURSES` overrides), because the
+two tools must show the same courses (user). Everything else (model, effort, default,
+medium, quickies) stays in `data/registry.json`.
+
+The cost: the shared file is per host, so the course list no longer travels with a synced
+checkout. The old rule existed because per-host config once showed three courses on one
+host and one on another. Point `STUDY_COURSES` at a synced path to get that back.
+
+Safety rules of the shared file (a review caught the first version losing the list):
+an unreadable file is never overwritten (the tool works from its own list for that run),
+and writes are atomic (`os.replace`). A registry that still holds `workspaces` migrates
+them into the shared file on first load.
 
 Consequences to preserve:
 - The path takes a `STUDYCLAUDE_REGISTRY` override so tests can redirect it to
-  `tmp_path`. Every registry test relies on this.
+  `tmp_path`. Every registry test relies on this. With it set, the courses stay in that
+  registry and the shared file is not touched.
 - It is gitignored. It's mutable runtime state; tracking it would leave
   `git status` permanently dirty and invite merge conflicts.
 - Because the file is shared, `default` is shared too. Two machines writing it in

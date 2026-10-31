@@ -132,9 +132,10 @@ All optional.
 | `STUDYCLAUDE_EXAMS` | Markdown file with your exam-date table (banner off when unset; registry key `exams_file` does the same) |
 | `STUDYCLAUDE_MEDIUM` | Override the working medium for one launch (`xournalpp` \| `board`) |
 
-Registered courses live in the gitignored `data/registry.json`, in the tool's own
-directory rather than `~/.config`, so a synced or shared checkout carries the same
-course list on every machine.
+Registered courses are shared with openstudy: both read and write
+`~/.config/study-courses.json` (override with `STUDY_COURSES`). Model, effort, default,
+medium and the other settings stay in the gitignored `data/registry.json`. With
+`STUDYCLAUDE_REGISTRY` set, the courses stay in that registry instead.
 
 Sessions launch on **Opus at `medium` effort**. Medium is deliberate: the loop is
 interactive tutoring, where latency is felt more than reasoning depth helps. `o`
