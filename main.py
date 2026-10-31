@@ -812,6 +812,16 @@ def _atomic_write(p: Path, payload: dict) -> None:
     os.replace(tmp, p)
 
 
+_WARNED: set = set()
+
+
+def _warn_once(message: str) -> None:
+    """The registry is loaded many times per run; say each warning once."""
+    if message not in _WARNED:
+        _WARNED.add(message)
+        print(message, file=sys.stderr)
+
+
 def _read_json(p: Path) -> dict:
     try:
         data = json.loads(p.read_text(encoding="utf-8"))
@@ -838,7 +848,7 @@ def _set_aside_unreadable(p: Path) -> bool:
     try:
         if not backup.exists():
             shutil.copy2(p, backup)
-        print(f"Warnung: {p} ist nicht lesbar; eine Kopie liegt in {backup}.", file=sys.stderr)
+        _warn_once(f"Warnung: {p} ist nicht lesbar; eine Kopie liegt in {backup}.")
     except OSError:
         pass
     return True
@@ -859,6 +869,19 @@ def _legacy_sources() -> dict:
     }
 
 
+def _read_source(path: "Path | str") -> "tuple[dict, bool]":
+    """A legacy source and whether it could be used: a missing file is fine (nothing
+    to import), one that exists but does not parse is not (mid-sync, corrupt)."""
+    p = Path(path)
+    if not p.exists():
+        return {}, True
+    try:
+        data = json.loads(p.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}, False
+    return (data, True) if isinstance(data, dict) else ({}, False)
+
+
 def _migrate_legacy(data: dict, sources: "dict | None" = None) -> dict:
     """Fold the old layouts into this registry, once (``"migrated": true``).
 
@@ -867,25 +890,33 @@ def _migrate_legacy(data: dict, sources: "dict | None" = None) -> dict:
     opencode ones) and, for a while, the course list lived in
     ``~/.config/study-courses.json``. Courses are united in that order. The marker
     keeps a course the user removes later from coming back.
+
+    A source that exists but cannot be read stops the migration for this start, with
+    nothing written and no marker: the next start tries again, so its courses are not
+    lost to a sync that was still running.
     """
     if data.get("migrated"):
         return data
     sources = _legacy_sources() if sources is None else sources
+    shared, shared_ok = _read_source(sources["courses"]) if "courses" in sources else ({}, True)
+    old, old_ok = (_read_source(sources["openstudy"])
+                   if "openstudy" in sources and Path(sources["openstudy"]) != _registry_path()
+                   else ({}, True))
+    if not (shared_ok and old_ok):
+        bad = [str(sources[k]) for k, ok in (("courses", shared_ok), ("openstudy", old_ok)) if not ok]
+        _warn_once(f"Warnung: nicht lesbar, Übernahme beim nächsten Start: {', '.join(bad)}")
+        return data
     engines = data.setdefault("engines", {})
     for key in _ENGINE_KEYS:
         if key in data:
             engines.setdefault("claude", {}).setdefault(key, data.pop(key))
     courses = [w for w in data.get("workspaces") or [] if isinstance(w, str)]
-    if "courses" in sources:
-        shared = _read_json(Path(sources["courses"])).get("workspaces")
-        courses += [w for w in shared or [] if isinstance(w, str) and w not in courses]
-    if "openstudy" in sources and Path(sources["openstudy"]) != _registry_path():
-        old = _read_json(Path(sources["openstudy"]))
-        courses += [w for w in old.get("workspaces") or []
+    for source in (shared, old):
+        courses += [w for w in source.get("workspaces") or []
                     if isinstance(w, str) and w not in courses]
-        for key in _ENGINE_KEYS:
-            if key in old:
-                engines.setdefault("opencode", {}).setdefault(key, old[key])
+    for key in _ENGINE_KEYS:
+        if key in old:
+            engines.setdefault("opencode", {}).setdefault(key, old[key])
     data["workspaces"] = courses
     data["migrated"] = True
     _atomic_write(_registry_path(), data)
@@ -915,7 +946,6 @@ def _save_registry(data: dict) -> None:
         if key in out:
             mine[key] = out.pop(key)
     out["engines"] = engines
-    out["migrated"] = True
     _atomic_write(_registry_path(), out)
 
 

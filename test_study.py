@@ -40,6 +40,7 @@ def spawns(monkeypatch, tmp_path):
     rec = {"exec": [], "popen": [], "cwd": None}
     monkeypatch.setenv("STUDY_REGISTRY", str(tmp_path / "registry.json"))
     monkeypatch.setattr(m, "ENGINE", "claude")
+    monkeypatch.setattr(m, "_WARNED", set())
     monkeypatch.delenv("STUDY_ENGINE", raising=False)
     monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path / "run"))
     monkeypatch.delenv("STUDY_DEFAULT_WORKSPACE", raising=False)
@@ -889,15 +890,14 @@ def test_the_shared_courses_file_is_read(tmp_path):
     assert json.loads(m._registry_path().read_text())["workspaces"] == ["/a", "/c"]
 
 
-def test_every_old_source_together_and_unreadable_ones_are_skipped(tmp_path):
+def test_every_old_source_together_and_a_missing_one_is_fine(tmp_path):
     shared = _write(tmp_path / "courses.json", {"workspaces": ["/c"]})
     old = _write(tmp_path / "old.json", {"workspaces": ["/b"], "model": "sonnet"})
-    broken = tmp_path / "broken.json"; broken.write_text("{", encoding="utf-8")
     m._migrate_legacy({"workspaces": ["/a"]}, {"courses": shared, "openstudy": old})
     assert json.loads(m._registry_path().read_text())["workspaces"] == ["/a", "/c", "/b"]
     m._registry_path().unlink()
-    m._migrate_legacy({"workspaces": ["/a"]}, {"courses": broken, "openstudy": tmp_path / "none.json"})
-    assert json.loads(m._registry_path().read_text())["workspaces"] == ["/a"]
+    m._migrate_legacy({"workspaces": ["/a"]}, {"courses": shared, "openstudy": tmp_path / "none.json"})
+    assert json.loads(m._registry_path().read_text())["workspaces"] == ["/a", "/c"]
 
 
 def test_migration_runs_once_so_a_removed_course_stays_removed(tmp_path):
@@ -1028,3 +1028,29 @@ def test_a_symlinked_prompt_dir_is_not_used(tmp_path, monkeypatch):
     (run / "study").symlink_to(elsewhere)
     monkeypatch.setenv("XDG_RUNTIME_DIR", str(run))
     assert m._prompt_dir() != run / "study"
+
+
+def test_an_unreadable_source_postpones_the_migration(tmp_path, capsys):
+    shared = _write(tmp_path / "courses.json", {"workspaces": ["/c"]})
+    broken = tmp_path / "broken.json"; broken.write_text("{", encoding="utf-8")   # mid-sync
+    data = m._migrate_legacy({"workspaces": ["/a"], "model": "sonnet"},
+                             {"courses": shared, "openstudy": broken})
+    assert "migrated" not in data and data["workspaces"] == ["/a"] and data["model"] == "sonnet"
+    assert not m._registry_path().exists()                  # nothing written, no marker
+    assert "nicht lesbar" in capsys.readouterr().err
+    broken.write_text(json.dumps({"workspaces": ["/b"]}), encoding="utf-8")   # sync finished
+    data = m._migrate_legacy({"workspaces": ["/a"], "model": "sonnet"},
+                             {"courses": shared, "openstudy": broken})
+    assert data["workspaces"] == ["/a", "/c", "/b"] and data["migrated"]
+
+
+def test_saving_before_the_migration_ran_does_not_set_the_marker(tmp_path):
+    m._save_registry({"workspaces": ["/a"], "default": None})
+    assert "migrated" not in json.loads(m._registry_path().read_text())
+
+
+def test_a_warning_is_printed_once_per_run(tmp_path, capsys):
+    m._registry_path().write_text("{", encoding="utf-8")
+    for _ in range(3):
+        m._load_registry()
+    assert capsys.readouterr().err.count("nicht lesbar") == 1
