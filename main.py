@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """study — spawn a Claude Code or opencode session that runs a personalized exam-prep Lern-Loop.
 
-One codebase, two engines: `--engine claude` (command `studyclaude`) and `--engine opencode`
-(command `openstudy`). The engine only changes how the session is launched and which
-model/effort/medium settings apply; the Lern-Loop, menu and courses are the same.
+One codebase, two engines: `--engine opencode` (command `openstudy`, the default) and
+`--engine claude` (command `studyclaude`). The engine only changes how the session is
+launched and which model/effort/medium settings apply; the Lern-Loop, menu and courses
+are the same.
 
 A classclaude/surfclaude/bootclaude sibling. Launches a `claude` session straight
 inside an exam-prep **workspace folder** and kicks off that folder's "Lern-Loop".
@@ -65,7 +66,8 @@ ENTRIES = {
         "desc": "Spawn a Claude session that runs a personalized exam-prep Lern-Loop in a workspace",
         "args": ["--engine", "claude"],
         "alias": "studyclaude",
-        "default_autostart": True,
+        # Off by default so it does not race openstudy's menu at login.
+        "default_autostart": False,
     }),
     "opencode": dict(_ENTRY_COMMON, **{
         "name": "openstudy",
@@ -74,8 +76,7 @@ ENTRIES = {
         "desc": "Spawn an opencode session that runs a personalized exam-prep Lern-Loop in a workspace",
         "args": ["--engine", "opencode"],
         "alias": "openstudy",
-        # Off by default so it does not race studyclaude's menu at login.
-        "default_autostart": False,
+        "default_autostart": True,
     }),
 }
 
@@ -114,9 +115,18 @@ def _env(name: str, default: "str | None" = None) -> "str | None":
     return default
 
 
+def _has_opencode() -> bool:
+    return bool(shutil.which("opencode")) or os.path.isfile(
+        os.path.expanduser("~/.opencode/bin/opencode"))
+
+
 def _initial_engine() -> str:
-    value = (_env("ENGINE") or "claude").strip().lower()
-    return value if value in ENGINES else "claude"
+    """``STUDY_ENGINE`` when valid, else opencode — or claude on a host that has
+    Claude Code but no opencode."""
+    value = (_env("ENGINE") or "").strip().lower()
+    if value in ENGINES:
+        return value
+    return "claude" if not _has_opencode() and shutil.which("claude") else "opencode"
 
 
 ENGINE = _initial_engine()
@@ -275,13 +285,53 @@ _EFFORTS = ("low", "medium", "high", "xhigh", "max")
 _EFFORT_LABELS = {e: e for e in _EFFORTS}
 
 
-def _available_models() -> list[str]:
-    """Return all selectable models.
+# opencode model ids per menu alias. The registry keeps the short alias.
+_OPENCODE_MODEL_IDS = {
+    "opus": "anthropic/claude-opus-5-5",
+    "sonnet": "anthropic/claude-sonnet-5-5",
+    "fable": "anthropic/claude-fable-5-1",
+}
+# opencode's own pick: the launch sets no model, so the one in the user's opencode
+# config (any provider, a free one included) applies. The opencode engine's default.
+OPENCODE_STANDARD = "standard"
+_OPENCODE_ID = re.compile(r"^[\w.-]+/\S+$")
 
-    Returns:
-        Ordered list of unique model identifier strings.
+
+def _default_model() -> str:
+    return DEFAULT_MODEL if ENGINE == "claude" else OPENCODE_STANDARD
+
+
+def _known_model(model: str) -> bool:
+    """claude takes the Anthropic aliases; opencode also `standard` and any
+    `provider/model` id."""
+    if model in _ANTHROPIC_MODELS:
+        return True
+    return ENGINE != "claude" and (model == OPENCODE_STANDARD or bool(_OPENCODE_ID.match(model)))
+
+
+def _opencode_models() -> list[str]:
+    """`opencode models`: every provider/model id opencode can reach on this host,
+    empty when opencode is missing or fails."""
+    try:
+        out = subprocess.run(["opencode", "models"], capture_output=True, text=True,
+                             timeout=5, env=_launch_env()).stdout
+    except (OSError, subprocess.SubprocessError):
+        return []
+    return [line.strip() for line in out.splitlines() if _OPENCODE_ID.match(line.strip())]
+
+
+def _available_models(full: bool = False) -> list[str]:
+    """The models to pick from: the `o` cycle, or with ``full`` the `O` menu.
+
+    claude: the Anthropic aliases. opencode: `standard`, the aliases and the free
+    models (`*-free`) from `opencode models`; ``full`` lists every model it reaches.
+    The current pick is always included.
     """
     models: list[str] = list(_ANTHROPIC_MODELS)
+    if ENGINE != "claude":
+        found = [mid for mid in _opencode_models() if mid not in _OPENCODE_MODEL_IDS.values()]
+        models = [OPENCODE_STANDARD, *models,
+                  *(mid for mid in found if full or mid.endswith("-free"))]
     current = _current_model()
     if current and current not in models:
         models.append(current)
@@ -297,15 +347,9 @@ def _model_label(model: str) -> str:
     Returns:
         Formatted display label.
     """
+    if model == OPENCODE_STANDARD and ENGINE != "claude":
+        return "opencode-Standard"
     return _ANTHROPIC_MODEL_LABELS.get(model, model)
-
-
-# opencode model ids per menu alias. The registry keeps the short alias.
-_OPENCODE_MODEL_IDS = {
-    "opus": "anthropic/claude-opus-5-5",
-    "sonnet": "anthropic/claude-sonnet-5-5",
-    "fable": "anthropic/claude-fable-5-1",
-}
 
 
 def _quickie_workdir(workspaces: list) -> str:
@@ -365,7 +409,8 @@ def _backend_launch(prompt: str, workdir: str) -> list[str]:
     claude: `--append-system-prompt`. opencode v2 has none and does not read
     CLAUDE.md, so the prompt file and the course's CLAUDE.md go in as
     `instructions`; The TUI has no `-m` flag, so the model and effort go in the
-    config too. `--standalone` is needed because the background service
+    config too, unless the pick is `standard`: then opencode's own config decides.
+    `--standalone` is needed because the background service
     ignores OPENCODE_CONFIG_CONTENT. The config rides in through `env`.
     """
     if ENGINE == "claude":
@@ -375,13 +420,16 @@ def _backend_launch(prompt: str, workdir: str) -> list[str]:
     course_md = Path(workdir) / "CLAUDE.md"
     if course_md.is_file():
         instructions.append(str(course_md))
-    provider, model = _OPENCODE_MODEL_IDS[_select_model()].split("/", 1)
-    config = json.dumps({
-        "instructions": instructions,
-        "model": {"providerID": provider, "model": model, "variant": _select_effort()},
-    }, ensure_ascii=False)
+    config: dict = {"instructions": instructions}
+    model = _select_model()
+    if model != OPENCODE_STANDARD:
+        provider, name = _OPENCODE_MODEL_IDS.get(model, model).split("/", 1)
+        config["model"] = {"providerID": provider, "model": name}
+        if model in _OPENCODE_MODEL_IDS:
+            # Effort variants are known for the Anthropic aliases only.
+            config["model"]["variant"] = _select_effort()
     return [
-        "env", f"OPENCODE_CONFIG_CONTENT={config}",
+        "env", f"OPENCODE_CONFIG_CONTENT={json.dumps(config, ensure_ascii=False)}",
         "opencode", "--standalone",
     ]
 
@@ -399,7 +447,7 @@ def _current_model() -> str:
     passed on to a launch that would reject it.
     """
     raw = str(_load_registry().get("model") or "").strip()
-    return raw if raw in _ANTHROPIC_MODELS else DEFAULT_MODEL
+    return raw if _known_model(raw) else _default_model()
 
 
 def _current_effort() -> str:
@@ -2237,7 +2285,7 @@ def _menu_loop(stdscr, data: dict):
     medium = str(data.get("medium") or "xournalpp")
     if medium not in _MEDIA:
         medium = "xournalpp"
-    model = str(data.get("model") or DEFAULT_MODEL)
+    model = str(data.get("model") or _default_model())
     effort = str(data.get("effort") or DEFAULT_EFFORT).lower()
     if effort not in _EFFORTS:
         effort = DEFAULT_EFFORT
@@ -2365,7 +2413,8 @@ def _menu_loop(stdscr, data: dict):
             model = models_list[(curr_idx + 1) % len(models_list)]
             data["model"] = model  # persisted by the caller
         elif ch in (ord("O"), ord("M")):
-            model = _model_selection_menu(stdscr, C, models_list, model)
+            full = _available_models(full=True) if ENGINE != "claude" else models_list
+            model = _model_selection_menu(stdscr, C, full, model)
             data["model"] = model  # persisted by the caller
         elif ch == ord("e"):
             effort = _EFFORTS[(_EFFORTS.index(effort) + 1) % len(_EFFORTS)]
@@ -2481,7 +2530,8 @@ def _do_install_remove(remove: bool, workspace: "str | None" = None,
 def _main() -> int:
     parser = argparse.ArgumentParser(prog="study", description=str(ENTRIES["claude"]["desc"]).replace("Claude", "Claude/opencode"))
     parser.add_argument("--engine", choices=ENGINES, default=None,
-                        help="agent to run the session in (default: claude; STUDY_ENGINE overrides the default)")
+                        help="agent to run the session in (default: opencode, or claude when only "
+                             "Claude Code is installed; STUDY_ENGINE overrides the default)")
     parser.add_argument("workspace", nargs="?", default=None,
                         help="workspace folder (default: the registered default course)")
     parser.add_argument("--advertise", action="store_true", help="emit installer metadata JSON")
@@ -2511,8 +2561,9 @@ def _main() -> int:
                         help="set the working medium the sessions use (xournalpp | board); "
                              "also toggled in the menu with `m`")
     parser.add_argument("--set-model", metavar="MODEL", dest="set_model", default=None,
-                        help="set the model the sessions launch with (opus, sonnet, fable); "
-                             "also switched in the menu with `o`")
+                        help="set the model the sessions launch with: opus, sonnet, fable; with "
+                             "opencode also `standard` (opencode's own config) or any provider/model "
+                             "id from `opencode models`; also switched in the menu with `o` / `O`")
     parser.add_argument("--set-effort", metavar="EFFORT", dest="set_effort", default=None,
                         choices=list(_EFFORTS),
                         help="set the effort the sessions launch with (low | medium | high | xhigh | max); "
@@ -2589,7 +2640,8 @@ def _main() -> int:
         print("Userspace:", _MEDIUM_LABELS[_set_medium(args.set_medium)])
         return 0
     if args.set_model:
-        print("Modell:", _model_label(_set_model(args.set_model)))
+        _set_model(args.set_model)
+        print("Modell:", _model_label(_current_model()))   # an unknown name shows its fallback
         return 0
     if args.set_effort:
         print("Effort:", _EFFORT_LABELS[_set_effort(args.set_effort)])

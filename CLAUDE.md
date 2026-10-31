@@ -13,6 +13,17 @@ Facts tested 2026-10-31 on opencode v2.1.2: `instructions` in `OPENCODE_CONFIG_C
 loads both files (needs `--standalone`); CLAUDE.md in cwd is NOT loaded; the TUI has
 `--prompt`. Not tested: the interactive TUI with `--prompt` and `-m …#effort` together.
 
+**openstudy is the default (user, 2026-10-31)**, because opencode reaches any provider,
+free and local models included. Without `--engine` and `STUDY_ENGINE`, `_initial_engine`
+picks opencode, claude only on a host with Claude Code and no opencode; only the
+openstudy entry has `default_autostart`. The README leads with openstudy. Models per
+engine: claude takes the Anthropic aliases; opencode also takes `standard`
+(`OPENCODE_STANDARD`, its default: the launch sets no model, so the user's opencode
+config decides) and any `provider/model` id. `_available_models` adds the `*-free` ids
+from `opencode models` to the `o` cycle, `full=True` (the `O` menu) every id. Effort
+goes into the config as `variant` only for the Anthropic aliases, whose variants are
+known.
+
 Env: `STUDY_*` first, then `STUDYCLAUDE_*`, then `OPENSTUDY_*` (`_env`), for one release.
 The sections below were written for studyclaude and still say Claude Code, `--append-system-prompt`
 and `claude` where the opencode engine differs; read them for design, not for launch mechanics.
@@ -450,7 +461,8 @@ duplication.
 ## Model and effort
 
 Launches use the registry keys `model` and `effort` directly, defaulting to
-**opus** at **medium** effort (`DEFAULT_MODEL` / `DEFAULT_EFFORT` in `main.py`).
+**opus** at **medium** effort (`DEFAULT_MODEL` / `DEFAULT_EFFORT` in `main.py`) for
+claude and to `standard` for opencode (`_default_model`, see the top of this file).
 Medium is a deliberate ceiling, not an oversight: this is interactive tutoring,
 where latency is felt more than extra depth helps.
 
@@ -472,11 +484,12 @@ bypasses `tier_effort` on purpose: choosing `high` in the menu on a Max host mus
 give high, or the switch would be a lie. The menu label for the medium row reads
 "Userspace"; the registry key, the templates and the code all still say `medium`.
 
-The `o` cycle lists the Anthropic models (`_ANTHROPIC_MODELS`), and
-`_available_models` appends whatever the registry currently holds so a pinned
-value stays visible. `_current_model` accepts only a known name: a registry
-written by an older build may still carry a model this one does not know, and
-that value falls back to `DEFAULT_MODEL` instead of reaching a launch.
+The `o` cycle lists the Anthropic models (`_ANTHROPIC_MODELS`; under opencode also
+`standard` and the free models), and `_available_models` appends whatever the
+registry currently holds so a pinned value stays visible. `_current_model` accepts
+only a name `_known_model` knows for the engine: a registry written by an older
+build may still carry a model this one does not know, and that value falls back to
+`_default_model()` instead of reaching a launch.
 
 ## Commits
 

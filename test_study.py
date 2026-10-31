@@ -764,7 +764,7 @@ def test_advertise_lists_both_commands(monkeypatch, capsys):
     assert set(entries) == {"studyclaude", "openstudy"}
     assert entries["studyclaude"]["args"] == ["--engine", "claude"]
     assert entries["openstudy"]["args"] == ["--engine", "opencode"]
-    assert entries["studyclaude"]["default_autostart"] and not entries["openstudy"]["default_autostart"]
+    assert entries["openstudy"]["default_autostart"] and not entries["studyclaude"]["default_autostart"]
     assert entries["studyclaude"]["desktop_file"] != entries["openstudy"]["desktop_file"]
 
 
@@ -775,10 +775,40 @@ def test_opencode_launch_argv(tmp_path, monkeypatch):
     assert argv[0] == "env" and "opencode" in argv and "--standalone" in argv
     assert "-p" not in argv and "run" not in argv
     assert "-m" not in argv
-    assert json.loads(argv[1].split("=", 1)[1])["model"] == {"providerID": "anthropic", "model": "claude-opus-5-5", "variant": "medium"}
     assert "--prompt" in argv
     cfg = json.loads(argv[1].split("=", 1)[1])
+    assert "model" not in cfg                                # fresh: opencode's own config decides
     assert len(cfg["instructions"]) == 1 and Path(cfg["instructions"][0]).is_file()
+
+
+def _oc_model(ws):
+    return json.loads(m._build_argv(ws)[1].split("=", 1)[1]).get("model")
+
+
+def test_opencode_takes_an_alias_or_any_provider_model_id(tmp_path, monkeypatch):
+    monkeypatch.setattr(m, "ENGINE", "opencode")
+    ws = _courses(tmp_path, "a")[0]
+    m._set_model("opus")
+    assert _oc_model(ws) == {"providerID": "anthropic", "model": "claude-opus-5-5", "variant": "medium"}
+    m._set_model("opencode/some-model-free")                 # no effort variant for foreign ids
+    assert _oc_model(ws) == {"providerID": "opencode", "model": "some-model-free"}
+    m._set_model("lmstudio/qwen/qwen3-8b")                   # the model part may hold a slash
+    assert _oc_model(ws) == {"providerID": "lmstudio", "model": "qwen/qwen3-8b"}
+    m._set_model("not a model")
+    assert m._current_model() == m.OPENCODE_STANDARD and _oc_model(ws) is None
+
+
+def test_opencode_model_lists(monkeypatch):
+    monkeypatch.setattr(m, "ENGINE", "opencode")
+    monkeypatch.setattr(m, "_opencode_models", lambda: [
+        "anthropic/claude-opus-5-5", "openai/gpt-5", "opencode/a-free", "opencode/big"])
+    assert m._available_models() == ["standard", "opus", "sonnet", "fable", "opencode/a-free"]
+    full = m._available_models(full=True)
+    assert full[:4] == ["standard", "opus", "sonnet", "fable"]
+    assert {"openai/gpt-5", "opencode/big"} <= set(full) and "anthropic/claude-opus-5-5" not in full
+    assert m._model_label("standard") == "opencode-Standard"
+    monkeypatch.setattr(m, "ENGINE", "claude")
+    assert m._available_models() == list(m._ANTHROPIC_MODELS)
 
 
 def test_opencode_gets_the_course_claude_md_as_instructions(tmp_path, monkeypatch):
@@ -823,7 +853,7 @@ def test_engine_flag_selects_the_engine(tmp_path, monkeypatch, capsys):
 def test_model_effort_and_medium_are_kept_per_engine(monkeypatch):
     m._set_model("sonnet"); m._set_effort("high"); m._set_medium("board")
     monkeypatch.setattr(m, "ENGINE", "opencode")
-    assert (m._current_model(), m._current_effort(), m._current_medium()) == ("opus", "medium", "xournalpp")
+    assert (m._current_model(), m._current_effort(), m._current_medium()) == ("standard", "medium", "xournalpp")
     m._set_model("fable")
     monkeypatch.setattr(m, "ENGINE", "claude")
     assert (m._current_model(), m._current_effort(), m._current_medium()) == ("sonnet", "high", "board")
@@ -858,8 +888,13 @@ def test_env_prefers_study_then_the_old_names(monkeypatch):
 def test_study_engine_sets_the_default_engine(monkeypatch):
     monkeypatch.setenv("STUDY_ENGINE", "opencode")
     assert m._initial_engine() == "opencode"
-    monkeypatch.setenv("STUDY_ENGINE", "bogus")
-    assert m._initial_engine() == "claude"
+    monkeypatch.setenv("STUDY_ENGINE", "bogus")              # junk counts as unset
+    monkeypatch.setattr(m, "_has_opencode", lambda: True)
+    assert m._initial_engine() == "opencode"                 # the default
+    monkeypatch.delenv("STUDY_ENGINE")
+    monkeypatch.setattr(m, "_has_opencode", lambda: False)
+    monkeypatch.setattr(m.shutil, "which", lambda name: "/bin/claude" if name == "claude" else None)
+    assert m._initial_engine() == "claude"                   # only Claude Code installed
 
 
 # --- migration of the two old layouts, once ----------------------------------------
