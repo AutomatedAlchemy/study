@@ -963,9 +963,23 @@ def _load_registry() -> dict:
 # courses are in the versioned file beside them and `default` is a course id. A save
 # turns what changed since the load into add/remove operations (`_save_registry`).
 
+def _tilde(path: str) -> str:
+    """``path`` with the home folder as ``~``: what the registry keeps as a hint, so it
+    still means something on a host with another user name."""
+    home = str(Path.home())
+    return "~" + path[len(home):] if path == home or path.startswith(home + os.sep) else path
+
+
 def _attach_courses(data: dict) -> None:
     legacy = [w for w in data.get("workspaces") or [] if isinstance(w, str)]
     root = _study_root()
+    hint = data.get("root_hint")
+    if root is None and not legacy and isinstance(hint, str):
+        # Another host moved the list: its registry says where, this host has no host.json yet.
+        candidate = os.path.expanduser(hint)
+        if course_list.file_path(candidate).exists():
+            root = course_list.write_root(candidate)
+            _warn_once(f"Hinweis: Lern-Root auf {root} gesetzt (aus dem Registry-Hinweis).")
     if root is None and legacy:
         guess = course_list.common_root(legacy)     # an existing install: guess once
         if guess:
@@ -973,10 +987,12 @@ def _attach_courses(data: dict) -> None:
             _warn_once(f"Hinweis: Lern-Root auf {root} gesetzt (ändern: study --set-root ORDNER).")
     data["_courses_root"] = root
     if root is None:
+        # Not an empty menu without a word: the header and the save say what is missing.
         data["workspaces"] = legacy
         data["_courses_loaded"] = list(legacy)
-        data["_courses_error"] = course_list.RootNotSet() if legacy else None
+        data["_courses_error"] = course_list.RootNotSet()
         return
+    data["root_hint"] = _tilde(root)
     try:
         if legacy:
             _move_courses_into_file(root, legacy)
@@ -1017,12 +1033,13 @@ def _move_courses_into_file(root: str, legacy: list) -> None:
     if isinstance(default, str) and course_list.norm(default) in ids:
         raw["default"] = ids[course_list.norm(default)]
     raw["workspaces"] = []
+    raw["root_hint"] = _tilde(root)
     _atomic_write(registry, raw)
 
 
 def _ids_by_path(root: str, entries: list) -> dict:
     return {course_list.norm(course_list.resolve_path(root, c["path"])):
-            c.get("id") or course_list.make_id(c["path"]) for c in entries}
+            course_list.entry_id(c) for c in entries}
 
 
 def _save_registry(data: dict) -> None:
@@ -1298,6 +1315,14 @@ def _exam_banner_lines(limit: int = 5) -> list:
         severity = "hot" if days <= 3 else "soon" if days <= 10 else "calm"
         lines.append((f"   {left:>9}  ·  {stamp:<16}  ·  {label}", severity))
     return lines
+
+
+def _course_error_lines(data: dict) -> list:
+    """Why the course list is not there, as menu header rows (first sentence only)."""
+    error = data.get("_courses_error")
+    if not error:
+        return []
+    return [(f"   ⚠ {getattr(error, 'short', None) or str(error).split('. ')[0]}", "hot")]
 
 
 def _conflict_banner_lines() -> list:
@@ -2204,7 +2229,7 @@ def _menu_loop(stdscr, data: dict):
     autostart = bool(default) and bool(workspaces)
     interacted = False
     start = time.monotonic()
-    exams = _exam_banner_lines() + _conflict_banner_lines()   # read once: the menu lives for seconds, not hours
+    exams = _exam_banner_lines() + _conflict_banner_lines() + _course_error_lines(data)   # read once: the menu lives for seconds, not hours
     progress = {ws: _progress_suffix(ws) + _overview_suffix(ws) for ws in workspaces}  # same lifetime
     medium = str(data.get("medium") or "xournalpp")
     if medium not in _MEDIA:
@@ -2524,6 +2549,8 @@ def _main() -> int:
         print(f"Userspace: {_MEDIUM_LABELS[_current_medium()]}")
         print(f"Modell: {_model_label(_current_model())}   Effort: {_select_effort()}")
         print(f"Root: {_study_root() or '— (STUDY_ROOT nicht gesetzt)'}")
+        for text, _severity in _course_error_lines(data):
+            print(text.strip())
         for text, _severity in _conflict_banner_lines():
             print(text.strip())
         return 0
@@ -2566,6 +2593,10 @@ def _main() -> int:
         return 0
     if args.set_root:
         root = course_list.write_root(args.set_root)
+        raw = _read_json(_registry_path())
+        if raw and not _set_aside_unreadable(_registry_path()):
+            raw["root_hint"] = _tilde(root)         # so another host can find the list
+            _atomic_write(_registry_path(), raw)
         print(f"Root: {root}   (Kursliste: {course_list.file_path(root)})")
         return 0
     if args.set_default:

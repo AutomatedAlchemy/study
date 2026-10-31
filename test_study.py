@@ -1251,3 +1251,49 @@ def test_the_move_of_an_old_list_keeps_existing_ids_for_the_default(tmp_path):
     _write(m._registry_path(), {"workspaces": [a], "default": a, "migrated": True})
     assert m._load_registry()["default"] == str(Path(a).resolve())
     assert json.loads(m._registry_path().read_text())["default"] == "chost-a"
+
+
+def test_a_second_host_finds_the_list_through_the_registry_hint(tmp_path, monkeypatch, capsys):
+    a = _courses(tmp_path, "a")[0]
+    m._register_workspace(a)                                    # the first host
+    hint = json.loads(m._registry_path().read_text())["root_hint"]
+    assert hint == m._tilde(str(tmp_path))
+    monkeypatch.delenv("STUDY_ROOT")
+    monkeypatch.setenv("STUDY_CONFIG_DIR", str(tmp_path / "other-host"))   # no host.json there
+    monkeypatch.setattr(m, "_tilde", lambda p: p)
+    data = m._load_registry()
+    assert data["workspaces"] == [str(Path(a).resolve())]
+    assert cl.read_root(None) == str(tmp_path)
+    assert "Registry-Hinweis" in capsys.readouterr().err
+
+
+def test_a_host_without_a_root_says_so_instead_of_showing_an_empty_menu(tmp_path, monkeypatch, capsys):
+    a = _courses(tmp_path, "a")[0]
+    m._register_workspace(a)
+    monkeypatch.delenv("STUDY_ROOT")
+    monkeypatch.setenv("STUDY_CONFIG_DIR", str(tmp_path / "other-host"))
+    raw = json.loads(m._registry_path().read_text()); raw["root_hint"] = "~/nowhere/Studium"
+    m._registry_path().write_text(json.dumps(raw))
+    data = m._load_registry()
+    assert data["workspaces"] == []
+    (text, severity), = m._course_error_lines(data)
+    assert "STUDY_ROOT" in text and "--set-root" in text and severity == "hot"
+    monkeypatch.setattr(sys, "argv", ["study", "--list"])
+    assert m.main() == 0
+    assert "--set-root" in capsys.readouterr().out
+
+
+def test_set_root_updates_the_hint_other_hosts_use(tmp_path, monkeypatch):
+    a = _courses(tmp_path, "a")[0]
+    m._register_workspace(a)
+    elsewhere = tmp_path / "elsewhere"; elsewhere.mkdir()
+    monkeypatch.setattr(sys, "argv", ["study", "--set-root", str(elsewhere)])
+    assert m.main() == 0
+    assert json.loads(m._registry_path().read_text())["root_hint"] == m._tilde(str(elsewhere.resolve()))
+
+
+def test_the_first_move_records_the_hint(tmp_path):
+    a = _courses(tmp_path, "a")[0]
+    _write(m._registry_path(), {"workspaces": [a], "migrated": True})
+    m._load_registry()
+    assert json.loads(m._registry_path().read_text())["root_hint"] == m._tilde(str(tmp_path))

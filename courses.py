@@ -14,6 +14,11 @@ other one removed. Unknown fields are kept on every course and at the top level.
 A Syncthing conflict copy (``courses.sync-conflict-*.json``) is reported, never merged:
 a union cannot tell "removed on one host" from "never there".
 
+The lock file is per host (in the config dir, never beside the list): a lock only covers
+one machine, and a lock file in a synced folder would be replicated to every host. The
+temp file of an atomic write has to sit beside the list; ignore ``.study/*.tmp`` in the
+sync tool (README).
+
 Stdlib only; locking uses ``fcntl`` (POSIX). Where it is missing (Windows) the lock is
 skipped, which leaves the read-apply-write window open but nothing else.
 """
@@ -45,6 +50,8 @@ class CoursesError(OSError):
 
 class RootNotSet(CoursesError):
     """No study root on this host."""
+
+    short = f"{ROOT_SETTING} nicht gesetzt: `study --set-root ORDNER` (oder die Umgebungsvariable)"
 
     def __init__(self) -> None:
         super().__init__(
@@ -152,6 +159,12 @@ def make_id(stored: str) -> str:
     return "c" + hashlib.sha1(norm(stored).replace("\\", "/").encode("utf-8")).hexdigest()[:8]
 
 
+def entry_id(entry: dict) -> str:
+    """The id an entry has: its own, or the one derived from its path (a hand-written
+    entry without one still can be removed)."""
+    return entry.get("id") or make_id(entry["path"])
+
+
 def make_course(root: "str | os.PathLike", path: "str | os.PathLike", name: Optional[str] = None) -> dict:
     stored = stored_path(root, path)
     return {"id": make_id(stored), "name": name or Path(stored).name, "path": stored}
@@ -195,7 +208,10 @@ def _locked(path: Path) -> Iterator[None]:
     if fcntl is None:  # pragma: no cover - Windows
         yield
         return
-    with open(path.with_name(path.name + ".lock"), "a+") as handle:
+    lock_dir = config_dir()
+    lock_dir.mkdir(parents=True, exist_ok=True)
+    name = "courses-" + hashlib.sha1(norm(path.resolve()).encode("utf-8")).hexdigest()[:10] + ".lock"
+    with open(lock_dir / name, "a+") as handle:
         fcntl.flock(handle, fcntl.LOCK_EX)
         try:
             yield
@@ -221,11 +237,12 @@ def apply(root: "str | os.PathLike", add: "list[dict] | None" = None,
         courses = list(before)
         gone = set(remove or [])
         if gone:
-            courses = [c for c in courses if not (isinstance(c, dict) and c.get("id") in gone)]
+            courses = [c for c in courses
+                       if not (_usable(c) and entry_id(c) in gone)]
         for new in add or []:
             target = norm(resolve_path(root, new["path"]))
             if not any(_usable(c) and (norm(resolve_path(root, c["path"])) == target
-                                       or c.get("id") == new["id"]) for c in courses):
+                                       or entry_id(c) == new["id"]) for c in courses):
                 courses.append(new)
         if courses != before or not path.exists():
             doc["courses"] = courses

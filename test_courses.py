@@ -189,3 +189,21 @@ def test_conflict_copies_are_listed_not_merged(tmp_path):
     assert [p.name for p in cl.conflict_copies(root)] == [
         "courses.sync-conflict-20261031-181500-ABCDEFG.json"]
     assert [c["path"] for c in cl.read_courses(root)] == ["A"]
+
+
+# --- sync-folder hygiene -----------------------------------------------------------
+
+def test_the_lock_is_per_host_and_nothing_but_the_list_sits_in_the_synced_folder(tmp_path):
+    root = tmp_path / "Studium"; root.mkdir()
+    cl.apply(root, add=[cl.make_course(root, _course(root, "A"))])
+    cl.apply(root, remove=["nope"])
+    assert sorted(p.name for p in cl.file_path(root).parent.iterdir()) == ["courses.json"]
+    assert any(p.suffix == ".lock" for p in cl.config_dir().iterdir())
+
+
+def test_an_entry_without_an_id_can_be_removed(tmp_path):
+    root = tmp_path
+    path = cl.file_path(root); path.parent.mkdir(parents=True)
+    path.write_text(json.dumps({"version": 1, "courses": [{"name": "A", "path": "A"}]}))
+    (item,) = cl.read_courses(root)
+    assert cl.apply(root, remove=[cl.entry_id(item)]) == []

@@ -162,6 +162,12 @@ undo each other. A Syncthing conflict copy of the list (`courses.sync-conflict-*
 shown in the menu header and by `--list`; it is not merged. If the list cannot be read, the
 menu opens empty, course changes are refused and nothing is overwritten.
 
+**Syncing the list.** The atomic write leaves a short-lived `.study/courses.json.<pid>.tmp`
+beside the list, so the sync tool should ignore it on every host (the lock file is per host and
+lives in the config dir, not beside the list). For Syncthing, add to the folder's `.stignore`
+(per host, not synced): `(?d)**/.study/*.tmp`. A registry on another host finds the list through
+its `root_hint`; without one (a fresh host) the menu header says to run `study --set-root`.
+
 The first start migrates the older layouts once: a registry with top-level
 `model`/`effort`/`medium` (studyclaude), the old openstudy registry,
 `~/.config/study-courses.json`, and the course list in the registry. The root is guessed from
