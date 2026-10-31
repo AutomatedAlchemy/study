@@ -86,6 +86,7 @@ if "--advertise" in sys.argv:
 import argparse
 import re
 import shutil
+import stat
 import subprocess
 import time
 from datetime import datetime
@@ -304,6 +305,38 @@ def _quickie_workdir(workspaces: list) -> str:
     return workspaces[0] if len(workspaces) == 1 else _tutor_workdir(workspaces)
 
 
+_PROMPT_KEEP_SECONDS = 3 * 24 * 3600
+
+
+def _prompt_dir() -> Path:
+    """A private directory for the prompt files; stale ones are removed.
+
+    ``$XDG_RUNTIME_DIR/study`` normally. A directory that is not ours (another user
+    pre-created it, a symlink, open permissions) is not used: a fresh one from
+    ``mkdtemp`` is, since the file in it is loaded as instructions by opencode.
+    """
+    import tempfile
+    runtime = os.environ.get("XDG_RUNTIME_DIR")
+    base = Path(runtime) / "study" if runtime else Path(f"/tmp/study-{os.getuid()}")
+    try:
+        base.mkdir(parents=True, exist_ok=True, mode=0o700)
+        st = os.lstat(base)
+        safe = (stat.S_ISDIR(st.st_mode) and st.st_uid == os.getuid()
+                and not st.st_mode & 0o077)
+    except OSError:
+        safe = False
+    if not safe:
+        base = Path(tempfile.mkdtemp(prefix="study-"))
+    cutoff = time.time() - _PROMPT_KEEP_SECONDS
+    for old in base.glob("prompt-*.md"):
+        try:
+            if old.stat().st_mtime < cutoff:
+                old.unlink()
+        except OSError:
+            pass
+    return base
+
+
 def _prompt_file(prompt: str) -> str:
     """Write the launcher prompt to a file that outlives the exec and return its path.
 
@@ -312,8 +345,7 @@ def _prompt_file(prompt: str) -> str:
     so parallel sessions never overwrite each other.
     """
     import hashlib
-    base = Path(os.environ.get("XDG_RUNTIME_DIR") or f"/tmp/study-{os.getuid()}") / "study"
-    base.mkdir(parents=True, exist_ok=True, mode=0o700)
+    base = _prompt_dir()
     path = base / f"prompt-{hashlib.sha256(prompt.encode('utf-8')).hexdigest()[:16]}.md"
     path.write_text(prompt, encoding="utf-8")
     return str(path)
@@ -788,6 +820,30 @@ def _read_json(p: Path) -> dict:
     return data if isinstance(data, dict) else {}
 
 
+def _set_aside_unreadable(p: Path) -> bool:
+    """True when ``p`` exists but cannot be read as a registry (half-synced, corrupt).
+
+    A copy is kept next to it first, so nothing that later saves a fresh registry
+    can lose the user's course list. One copy per file: an existing one is kept.
+    """
+    if not p.exists():
+        return False
+    try:
+        data = json.loads(p.read_text(encoding="utf-8"))
+        if isinstance(data, dict):
+            return False
+    except (OSError, ValueError):
+        pass
+    backup = p.with_name(p.name + ".unreadable")
+    try:
+        if not backup.exists():
+            shutil.copy2(p, backup)
+        print(f"Warnung: {p} ist nicht lesbar; eine Kopie liegt in {backup}.", file=sys.stderr)
+    except OSError:
+        pass
+    return True
+
+
 def _legacy_sources() -> dict:
     """Where the two tools that were merged into this one kept their data.
 
@@ -837,7 +893,10 @@ def _migrate_legacy(data: dict, sources: "dict | None" = None) -> dict:
 
 
 def _load_registry() -> dict:
-    data = _migrate_legacy(_read_json(_registry_path()))
+    if _set_aside_unreadable(_registry_path()):
+        data = {}        # no migration: it would write over the unreadable file
+    else:
+        data = _migrate_legacy(_read_json(_registry_path()))
     data.setdefault("workspaces", [])
     data.setdefault("default", None)
     mine = (data.get("engines") or {}).get(ENGINE) or {}

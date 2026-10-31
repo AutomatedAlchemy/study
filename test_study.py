@@ -967,3 +967,64 @@ def test_a_workspace_icon_carries_its_engine(installer, tmp_path, monkeypatch, e
     (verb, meta), = installer.calls
     assert meta.args == [ws, "--engine", engine]
     assert meta.alias == f"{command}_mathe_1" and meta.desktop_file == f"{command}_mathe_1.desktop"
+
+
+# --- an unreadable registry is never overwritten ------------------------------------
+
+def test_an_unreadable_registry_is_kept_and_not_migrated(tmp_path, capsys):
+    reg = m._registry_path()
+    reg.write_text('{"workspaces": ["/a", "/b"', encoding="utf-8")        # half-synced
+    data = m._load_registry()
+    assert data["workspaces"] == []
+    assert reg.read_text(encoding="utf-8") == '{"workspaces": ["/a", "/b"'   # not replaced
+    backup = reg.with_name(reg.name + ".unreadable")
+    assert backup.read_text(encoding="utf-8") == '{"workspaces": ["/a", "/b"'
+    assert "nicht lesbar" in capsys.readouterr().err
+
+
+def test_an_existing_backup_of_an_unreadable_registry_is_not_overwritten(tmp_path):
+    reg = m._registry_path()
+    reg.write_text("{", encoding="utf-8")
+    m._load_registry()
+    reg.write_text("{{", encoding="utf-8")
+    m._load_registry()
+    assert reg.with_name(reg.name + ".unreadable").read_text(encoding="utf-8") == "{"
+
+
+def test_a_missing_registry_is_a_fresh_install_not_an_error(tmp_path, capsys):
+    assert not m._registry_path().exists()
+    assert m._load_registry()["workspaces"] == []
+    assert "nicht lesbar" not in capsys.readouterr().err
+
+
+# --- the opencode prompt directory ----------------------------------------------------
+
+def test_the_prompt_dir_is_private_and_stale_files_go(tmp_path, monkeypatch):
+    import os, time
+    run = tmp_path / "run"
+    monkeypatch.setenv("XDG_RUNTIME_DIR", str(run))
+    base = m._prompt_dir()
+    assert base == run / "study" and (base.stat().st_mode & 0o077) == 0
+    old, new = base / "prompt-old.md", base / "prompt-new.md"
+    old.write_text("x"); new.write_text("y")
+    past = time.time() - m._PROMPT_KEEP_SECONDS - 60
+    os.utime(old, (past, past))
+    m._prompt_dir()
+    assert not old.exists() and new.exists()
+
+
+def test_a_prompt_dir_that_is_not_ours_is_not_used(tmp_path, monkeypatch):
+    run = tmp_path / "run"
+    (run / "study").mkdir(parents=True, mode=0o755)
+    (run / "study").chmod(0o755)                    # open to other users
+    monkeypatch.setenv("XDG_RUNTIME_DIR", str(run))
+    base = m._prompt_dir()
+    assert base != run / "study" and (base.stat().st_mode & 0o077) == 0
+
+
+def test_a_symlinked_prompt_dir_is_not_used(tmp_path, monkeypatch):
+    run = tmp_path / "run"; run.mkdir()
+    elsewhere = tmp_path / "elsewhere"; elsewhere.mkdir(mode=0o700)
+    (run / "study").symlink_to(elsewhere)
+    monkeypatch.setenv("XDG_RUNTIME_DIR", str(run))
+    assert m._prompt_dir() != run / "study"
