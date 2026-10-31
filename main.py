@@ -364,7 +364,8 @@ def _backend_launch(prompt: str, workdir: str) -> list[str]:
 
     claude: `--append-system-prompt`. opencode v2 has none and does not read
     CLAUDE.md, so the prompt file and the course's CLAUDE.md go in as
-    `instructions`; `--standalone` is needed because the background service
+    `instructions`; The TUI has no `-m` flag, so the model and effort go in the
+    config too. `--standalone` is needed because the background service
     ignores OPENCODE_CONFIG_CONTENT. The config rides in through `env`.
     """
     if ENGINE == "claude":
@@ -374,12 +375,14 @@ def _backend_launch(prompt: str, workdir: str) -> list[str]:
     course_md = Path(workdir) / "CLAUDE.md"
     if course_md.is_file():
         instructions.append(str(course_md))
-    config = json.dumps({"instructions": instructions}, ensure_ascii=False)
-    model = _OPENCODE_MODEL_IDS[_select_model()]
+    provider, model = _OPENCODE_MODEL_IDS[_select_model()].split("/", 1)
+    config = json.dumps({
+        "instructions": instructions,
+        "model": {"providerID": provider, "model": model, "variant": _select_effort()},
+    }, ensure_ascii=False)
     return [
         "env", f"OPENCODE_CONFIG_CONTENT={config}",
         "opencode", "--standalone",
-        "-m", f"{model}#{_select_effort()}",
     ]
 
 

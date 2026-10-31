@@ -774,7 +774,8 @@ def test_opencode_launch_argv(tmp_path, monkeypatch):
     argv = m._build_argv(ws)
     assert argv[0] == "env" and "opencode" in argv and "--standalone" in argv
     assert "-p" not in argv and "run" not in argv
-    assert argv[argv.index("-m") + 1] == "anthropic/claude-opus-5-5#medium"
+    assert "-m" not in argv
+    assert json.loads(argv[1].split("=", 1)[1])["model"] == {"providerID": "anthropic", "model": "claude-opus-5-5", "variant": "medium"}
     assert "--prompt" in argv
     cfg = json.loads(argv[1].split("=", 1)[1])
     assert len(cfg["instructions"]) == 1 and Path(cfg["instructions"][0]).is_file()
