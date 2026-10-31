@@ -684,6 +684,11 @@ def _courses_path() -> "Path | None":
 
 
 def _read_courses(p: Path) -> "list | None":
+    """The shared list; ``[]`` when the file is missing, ``None`` when it exists
+    but cannot be read (a sibling mid-write, a corrupt file). That one is never
+    overwritten."""
+    if not p.exists():
+        return []
     try:
         items = json.loads(p.read_text(encoding="utf-8")).get("workspaces")
     except (OSError, ValueError, AttributeError):
@@ -693,8 +698,10 @@ def _read_courses(p: Path) -> "list | None":
 
 def _write_courses(p: Path, courses: list) -> None:
     p.parent.mkdir(parents=True, exist_ok=True)
-    p.write_text(json.dumps({"workspaces": courses}, indent=2, ensure_ascii=False),
-                 encoding="utf-8")
+    tmp = p.with_name(p.name + f".{os.getpid()}.tmp")
+    tmp.write_text(json.dumps({"workspaces": courses}, indent=2, ensure_ascii=False),
+                   encoding="utf-8")
+    os.replace(tmp, p)
 
 
 def _load_registry() -> dict:
@@ -706,11 +713,13 @@ def _load_registry() -> dict:
     data.setdefault("default", None)
     shared = _courses_path()
     if shared is not None:
-        courses = _read_courses(shared) or []
+        courses = _read_courses(shared)
+        if courses is None:
+            return data             # unreadable: work from this registry's own list
         # Courses an older version kept in this registry move to the shared list.
         extra = [w for w in data["workspaces"] if w not in courses]
         if extra:
-            courses += extra
+            courses = courses + extra
             _write_courses(shared, courses)
         data["workspaces"] = courses
     return data
@@ -721,10 +730,12 @@ def _save_registry(data: dict) -> None:
     p.parent.mkdir(parents=True, exist_ok=True)
     shared = _courses_path()
     own = data
-    if shared is not None:
+    if shared is not None and _read_courses(shared) is not None:
         _write_courses(shared, list(data["workspaces"]))
         own = dict(data, workspaces=[])
-    p.write_text(json.dumps(own, indent=2, ensure_ascii=False), encoding="utf-8")
+    tmp = p.with_name(p.name + f".{os.getpid()}.tmp")
+    tmp.write_text(json.dumps(own, indent=2, ensure_ascii=False), encoding="utf-8")
+    os.replace(tmp, p)
 
 
 def _ensure_default(data: dict) -> dict:

@@ -767,3 +767,17 @@ def test_courses_are_shared_through_one_file(tmp_path, monkeypatch):
     own = json.loads(legacy.read_text())
     assert own["workspaces"] == [] and own["model"] == "x"        # settings stay local
     assert main._load_registry()["workspaces"] == ["/b"]          # no resurrection
+
+
+def test_an_unreadable_shared_file_is_never_overwritten(tmp_path, monkeypatch):
+    import json, main
+    monkeypatch.delenv("STUDYCLAUDE_REGISTRY", raising=False)
+    monkeypatch.setenv("STUDY_COURSES", str(tmp_path / "courses.json"))
+    monkeypatch.setattr(main, "SCRIPT_DIR", tmp_path / "tool")
+    shared = tmp_path / "courses.json"
+    shared.write_text('{"workspaces": ["/a", "/b"', encoding="utf-8")   # half-written
+    data = main._load_registry()
+    data["workspaces"].append("/c")
+    main._save_registry(data)
+    assert shared.read_text(encoding="utf-8") == '{"workspaces": ["/a", "/b"'
+    assert "/c" in json.loads((tmp_path / "tool" / "data" / "registry.json").read_text())["workspaces"]
