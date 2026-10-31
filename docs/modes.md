@@ -69,7 +69,7 @@ The Quickie never builds a course overview.
 
 The Begleiter (in free time) and the Quickie pick a course on their own. To steer that pick by
 weekday, write a plain-text rule into `data/wochenplan.md`, next to the registry
-(with `STUDYCLAUDE_REGISTRY` set, next to that file). For example: "Monday to
+(with `STUDY_REGISTRY` set, next to that file). For example: "Monday to
 Friday the university courses, on weekends the languages; an exam within 7 days
 always comes first." Copy
 [`templates/wochenplan.example.md`](../templates/wochenplan.example.md) as a

@@ -1,4 +1,4 @@
-"""Offline tests for studyclaude — no konsole/claude launch, no network.
+"""Offline tests for study (studyclaude + openstudy) — no konsole/claude/opencode launch, no network.
 
 Every test asserts a behaviour that would break something real: the registry
 state machine, the CLI routing, the launch argv, the parsers that read foreign
@@ -22,7 +22,7 @@ TEMPLATE = (HERE / "templates" / "LERNLOOP_TEMPLATE.md").read_text(encoding="utf
 
 
 def _load():
-    spec = importlib.util.spec_from_file_location("studyclaude_main", MAIN)
+    spec = importlib.util.spec_from_file_location("study_main", MAIN)
     assert spec and spec.loader
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
@@ -38,10 +38,13 @@ def spawns(monkeypatch, tmp_path):
     recorded (tests inspect the argv); a Popen fails the test unless it opted
     in with ``spawns["allow_popen"] = True``. Also isolates the registry."""
     rec = {"exec": [], "popen": [], "cwd": None}
-    monkeypatch.setenv("STUDYCLAUDE_REGISTRY", str(tmp_path / "registry.json"))
-    monkeypatch.delenv("STUDYCLAUDE_DEFAULT_WORKSPACE", raising=False)
-    monkeypatch.delenv("STUDYCLAUDE_MEDIUM", raising=False)
-    monkeypatch.delenv("STUDYCLAUDE_EXAMS", raising=False)
+    monkeypatch.setenv("STUDY_REGISTRY", str(tmp_path / "registry.json"))
+    monkeypatch.setattr(m, "ENGINE", "claude")
+    monkeypatch.delenv("STUDY_ENGINE", raising=False)
+    monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path / "run"))
+    monkeypatch.delenv("STUDY_DEFAULT_WORKSPACE", raising=False)
+    monkeypatch.delenv("STUDY_MEDIUM", raising=False)
+    monkeypatch.delenv("STUDY_EXAMS", raising=False)
     monkeypatch.setenv("CLAUDE_TIER_OVERRIDE", "max")
     monkeypatch.setattr(m.os, "chdir", lambda d: rec.update(cwd=d))
     monkeypatch.setattr(m.os, "execvpe", lambda prog, argv, env: rec["exec"].append(argv))
@@ -120,9 +123,9 @@ def test_registry_state_machine(tmp_path, monkeypatch):
         data = m._load_registry()
         assert data["default"] == sentinel and sentinel not in data["workspaces"]
         assert m._resolve_workspace(None) == a               # scripts never see a sentinel
-    monkeypatch.setenv("STUDYCLAUDE_DEFAULT_WORKSPACE", b)
+    monkeypatch.setenv("STUDY_DEFAULT_WORKSPACE", b)
     assert m._resolve_workspace(None) == b                   # env wins
-    monkeypatch.delenv("STUDYCLAUDE_DEFAULT_WORKSPACE")
+    monkeypatch.delenv("STUDY_DEFAULT_WORKSPACE")
     m._set_default(a)
     assert m._unregister_workspace(a) and not m._unregister_workspace(a)
     assert m._ensure_default(m._load_registry())["default"] == m._BEGLEITER_SENTINEL   # falls back
@@ -163,9 +166,9 @@ def test_medium_choice_precedence(monkeypatch):
     assert m._current_medium() == "xournalpp"
     m._set_medium("board")
     assert m._current_medium() == "board"                    # registry
-    monkeypatch.setenv("STUDYCLAUDE_MEDIUM", "xournalpp")
+    monkeypatch.setenv("STUDY_MEDIUM", "xournalpp")
     assert m._current_medium() == "xournalpp"                # env wins
-    monkeypatch.setenv("STUDYCLAUDE_MEDIUM", "garbage")
+    monkeypatch.setenv("STUDY_MEDIUM", "garbage")
     assert m._current_medium() == "xournalpp"                # junk falls back
     for medium in m._MEDIA:
         assert (HERE / "templates" / "media" / f"{medium}.md").is_file()
@@ -182,7 +185,7 @@ def test_model_picker_and_registry_tolerance():
     # a model this build does not know (an old registry) falls back, never crashes
     m._set_model("deepseek-ai/DeepSeek-V4-Flash-0731")
     assert m._current_model() == m.DEFAULT_MODEL
-    assert m._backend_cmd() == ["claude"]
+    assert m._OPENCODE_MODEL_IDS.keys() == set(m._ANTHROPIC_MODELS)
 
 
 def test_quickie_streak_arithmetic():
@@ -289,7 +292,7 @@ def test_prompts_orient_without_reencoding_the_procedure(tmp_path, monkeypatch):
     that one's), but no sheet names and no Häppchen file list."""
     a, b = _courses(tmp_path, "Physik", "Spanisch")
     Path(a, "todo.md").write_text("Fortschritt: 2/30 Häppchen\n", encoding="utf-8")
-    monkeypatch.setenv("STUDYCLAUDE_MEDIUM", "board")
+    monkeypatch.setenv("STUDY_MEDIUM", "board")
     texts = {
         "course": m._assemble_prompt(a) + m.opening_message(a),
         "quickie": m._assemble_quickie_prompt([a, b]) + m.opening_message_quickie([a, b], 3, 7),
@@ -340,7 +343,7 @@ def test_prompts_orient_without_reencoding_the_procedure(tmp_path, monkeypatch):
     assert b not in texts["quickie-solo"]                    # one course: no pick
     assert a in texts["gaertner"] and "2/30" in texts["gaertner"]         # every dossier
     assert "--unregister" in texts["gaertner"] and "registry.json" not in texts["gaertner"]
-    monkeypatch.setenv("STUDYCLAUDE_MEDIUM", "xournalpp")
+    monkeypatch.setenv("STUDY_MEDIUM", "xournalpp")
     assert ".xopp" in m._assemble_prompt(a) and "get_canvas" not in m._assemble_prompt(a)
 
 
@@ -349,7 +352,7 @@ def test_blatt_finder_marks_exactly_the_mapped_spans(tmp_path):
     else, a snippet that cuts a formula or left the sheet is refused, and the
     page builds without KaTeX."""
     spec = importlib.util.spec_from_file_location(
-        "studyclaude_blatt_finder", HERE / "templates" / "tools" / "blatt_finder.py")
+        "study_blatt_finder", HERE / "templates" / "tools" / "blatt_finder.py")
     bf = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(bf)
     sheet = tmp_path / "blatt.md"
@@ -590,7 +593,7 @@ def test_exam_table_parsing(tmp_path, monkeypatch):
     assert "keine Klausurtabelle konfiguriert" in m._exam_prompt_lines()
     f = tmp_path / "Pruefungen.md"
     f.write_text(_EXAM_TABLE, encoding="utf-8")
-    monkeypatch.setenv("STUDYCLAUDE_EXAMS", str(f))
+    monkeypatch.setenv("STUDY_EXAMS", str(f))
     rows = m.upcoming_exams(now=datetime.datetime(2026, 8, 13, 10, 0))
     assert [r[2] for r in rows] == ["Lineare Algebra I", "Thermodynamik", "Analysis"]
     assert rows[0][:2] == (34, "Mi 16.09. 09:00")
@@ -746,123 +749,221 @@ def test_menu_countdown_survives_a_window_resize(monkeypatch, tmp_path):
     assert m._menu_loop(screen, data) == ("begleiter", None)
 
 
-# --- the course list is shared with the sibling tool ---------------------------
+# --- one tool, two engines -------------------------------------------------------
 
-def test_courses_are_shared_through_one_file(tmp_path, monkeypatch):
-    import json, main
-    monkeypatch.delenv("STUDYCLAUDE_REGISTRY", raising=False)
-    monkeypatch.setenv("STUDY_COURSES", str(tmp_path / "courses.json"))
-    monkeypatch.setattr(main, "SCRIPT_DIR", tmp_path / "tool")
-    (tmp_path / "tool" / "data").mkdir(parents=True)
-    legacy = tmp_path / "tool" / "data" / "registry.json"
-    legacy.write_text(json.dumps({"workspaces": ["/a"], "model": "x"}), encoding="utf-8")
-    assert main._load_registry()["workspaces"] == ["/a"]          # migrated
-    (tmp_path / "courses.json").write_text(
-        json.dumps({"workspaces": ["/a", "/b"]}), encoding="utf-8")  # the sibling added one
-    assert main._load_registry()["workspaces"] == ["/a", "/b"]
-    data = main._load_registry()
+def test_advertise_lists_both_commands(monkeypatch, capsys):
+    monkeypatch.setattr(sys, "argv", ["study", "--advertise"])
+    with pytest.raises(SystemExit):
+        _load()
+    entries = {e["alias"]: e for e in json.loads(capsys.readouterr().out)}
+    assert set(entries) == {"studyclaude", "openstudy"}
+    assert entries["studyclaude"]["args"] == ["--engine", "claude"]
+    assert entries["openstudy"]["args"] == ["--engine", "opencode"]
+    assert entries["studyclaude"]["default_autostart"] and not entries["openstudy"]["default_autostart"]
+    assert entries["studyclaude"]["desktop_file"] != entries["openstudy"]["desktop_file"]
+
+
+def test_opencode_launch_argv(tmp_path, monkeypatch):
+    monkeypatch.setattr(m, "ENGINE", "opencode")
+    ws = _courses(tmp_path, "a")[0]
+    argv = m._build_argv(ws)
+    assert argv[0] == "env" and "opencode" in argv and "--standalone" in argv
+    assert "-p" not in argv and "run" not in argv
+    assert argv[argv.index("-m") + 1] == "anthropic/claude-opus-5-5#medium"
+    assert "--prompt" in argv
+    cfg = json.loads(argv[1].split("=", 1)[1])
+    assert len(cfg["instructions"]) == 1 and Path(cfg["instructions"][0]).is_file()
+
+
+def test_opencode_gets_the_course_claude_md_as_instructions(tmp_path, monkeypatch):
+    monkeypatch.setattr(m, "ENGINE", "opencode")
+    ws = _courses(tmp_path, "a")[0]
+    (Path(ws) / "CLAUDE.md").write_text("# kurs\n", encoding="utf-8")
+    cfg = json.loads(m._build_argv(ws)[1].split("=", 1)[1])
+    assert str(Path(ws) / "CLAUDE.md") in cfg["instructions"]
+
+
+def test_claude_launch_keeps_the_opening_message_positional(tmp_path):
+    ws = _courses(tmp_path, "a")[0]
+    argv = m._build_argv(ws)
+    assert argv[0] == "claude" and "--append-system-prompt" in argv and "--prompt" not in argv
+
+
+@pytest.mark.parametrize("engine, expected, forbidden", [
+    ("claude", "model: sonnet", "Task-Tool"),
+    ("opencode", "Task-Tool", "model: sonnet"),
+])
+def test_the_subagent_rule_follows_the_engine(monkeypatch, engine, expected, forbidden):
+    monkeypatch.setattr(m, "ENGINE", engine)
+    text = m._prompt_common()
+    assert expected in text and forbidden not in text and "model: opus" not in text
+
+
+def test_the_command_name_follows_the_engine(monkeypatch):
+    assert m._command_name() == "studyclaude"
+    monkeypatch.setattr(m, "ENGINE", "opencode")
+    assert m._command_name() == "openstudy"
+
+
+def test_engine_flag_selects_the_engine(tmp_path, monkeypatch, capsys):
+    a = _courses(tmp_path, "a")[0]
+    m._register_workspace(a)
+    monkeypatch.setattr(sys, "argv", ["study", "--engine", "opencode", "--dry-run", a])
+    assert m.main() == 0
+    assert "opencode" in capsys.readouterr().out
+    assert m.ENGINE == "opencode"
+
+
+def test_model_effort_and_medium_are_kept_per_engine(monkeypatch):
+    m._set_model("sonnet"); m._set_effort("high"); m._set_medium("board")
+    monkeypatch.setattr(m, "ENGINE", "opencode")
+    assert (m._current_model(), m._current_effort(), m._current_medium()) == ("opus", "medium", "xournalpp")
+    m._set_model("fable")
+    monkeypatch.setattr(m, "ENGINE", "claude")
+    assert (m._current_model(), m._current_effort(), m._current_medium()) == ("sonnet", "high", "board")
+    on_disk = json.loads(m._registry_path().read_text(encoding="utf-8"))
+    assert on_disk["engines"]["claude"] == {"model": "sonnet", "effort": "high", "medium": "board"}
+    assert on_disk["engines"]["opencode"] == {"model": "fable"}
+    assert not {"model", "effort", "medium"} & set(on_disk)
+
+
+def test_courses_and_the_default_are_shared_between_engines(tmp_path, monkeypatch):
+    a, b = _courses(tmp_path, "a", "b")
+    m._register_workspace(a); m._register_workspace(b, make_default=True)
+    monkeypatch.setattr(m, "ENGINE", "opencode")
+    data = m._load_registry()
+    assert data["workspaces"] == [a, b] and data["default"] == b
+
+
+# --- environment: STUDY_* first, the old prefixes as fallbacks -----------------
+
+def test_env_prefers_study_then_the_old_names(monkeypatch):
+    for prefix in ("STUDY_", "STUDYCLAUDE_", "OPENSTUDY_"):
+        monkeypatch.delenv(prefix + "ROOT", raising=False)
+    assert m._env("ROOT", "dflt") == "dflt"
+    monkeypatch.setenv("OPENSTUDY_ROOT", "/o")
+    assert m._env("ROOT") == "/o"
+    monkeypatch.setenv("STUDYCLAUDE_ROOT", "/c")
+    assert m._env("ROOT") == "/c"
+    monkeypatch.setenv("STUDY_ROOT", "/s")
+    assert m._env("ROOT") == "/s"
+
+
+def test_study_engine_sets_the_default_engine(monkeypatch):
+    monkeypatch.setenv("STUDY_ENGINE", "opencode")
+    assert m._initial_engine() == "opencode"
+    monkeypatch.setenv("STUDY_ENGINE", "bogus")
+    assert m._initial_engine() == "claude"
+
+
+# --- migration of the two old layouts, once ----------------------------------------
+
+def _write(path, payload):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    return path
+
+
+def test_the_old_studyclaude_registry_is_read(tmp_path):
+    _write(m._registry_path(), {"workspaces": ["/a"], "default": "/a", "model": "sonnet",
+                                "effort": "high", "medium": "board", "quickies": {"streak": 4}})
+    data = m._load_registry()
+    assert data["workspaces"] == ["/a"] and data["default"] == "/a"
+    assert (data["model"], data["effort"], data["medium"]) == ("sonnet", "high", "board")
+    assert data["quickies"] == {"streak": 4}
+    assert json.loads(m._registry_path().read_text())["engines"]["claude"]["model"] == "sonnet"
+
+
+def test_the_old_openstudy_registry_is_read(tmp_path):
+    old = _write(tmp_path / "old" / "registry.json",
+                 {"workspaces": ["/b"], "default": None, "model": "fable", "effort": "low"})
+    m._migrate_legacy({"workspaces": ["/a"]}, {"openstudy": old})
+    data = json.loads(m._registry_path().read_text())
+    assert data["workspaces"] == ["/a", "/b"]
+    assert data["engines"]["opencode"] == {"model": "fable", "effort": "low"}
+
+
+def test_the_shared_courses_file_is_read(tmp_path):
+    shared = _write(tmp_path / "courses.json", {"workspaces": ["/c", "/a"]})
+    m._migrate_legacy({"workspaces": ["/a"]}, {"courses": shared})
+    assert json.loads(m._registry_path().read_text())["workspaces"] == ["/a", "/c"]
+
+
+def test_every_old_source_together_and_unreadable_ones_are_skipped(tmp_path):
+    shared = _write(tmp_path / "courses.json", {"workspaces": ["/c"]})
+    old = _write(tmp_path / "old.json", {"workspaces": ["/b"], "model": "sonnet"})
+    broken = tmp_path / "broken.json"; broken.write_text("{", encoding="utf-8")
+    m._migrate_legacy({"workspaces": ["/a"]}, {"courses": shared, "openstudy": old})
+    assert json.loads(m._registry_path().read_text())["workspaces"] == ["/a", "/c", "/b"]
+    m._registry_path().unlink()
+    m._migrate_legacy({"workspaces": ["/a"]}, {"courses": broken, "openstudy": tmp_path / "none.json"})
+    assert json.loads(m._registry_path().read_text())["workspaces"] == ["/a"]
+
+
+def test_migration_runs_once_so_a_removed_course_stays_removed(tmp_path):
+    shared = _write(tmp_path / "courses.json", {"workspaces": ["/a", "/b"]})
+    data = m._migrate_legacy({}, {"courses": shared})
     data["workspaces"].remove("/a")
-    main._save_registry(data)
-    assert json.loads((tmp_path / "courses.json").read_text())["workspaces"] == ["/b"]
-    own = json.loads(legacy.read_text())
-    assert own["workspaces"] == [] and own["model"] == "x"        # settings stay local
-    assert main._load_registry()["workspaces"] == ["/b"]          # no resurrection
+    m._save_registry(data)
+    again = m._migrate_legacy(m._load_registry(), {"courses": shared})
+    assert again["workspaces"] == ["/b"]
 
 
-def _shared_env(tmp_path, monkeypatch):
-    import main
-    monkeypatch.delenv("STUDYCLAUDE_REGISTRY", raising=False)
-    monkeypatch.setenv("STUDY_COURSES", str(tmp_path / "courses.json"))
-    monkeypatch.setattr(main, "SCRIPT_DIR", tmp_path / "tool")
-    (tmp_path / "tool" / "data").mkdir(parents=True)
-    return main, tmp_path / "courses.json", tmp_path / "tool" / "data" / "registry.json"
+def test_a_redirected_registry_never_reads_the_real_sources(monkeypatch):
+    monkeypatch.setenv("STUDY_COURSES", "/nonexistent/courses.json")
+    assert m._legacy_sources() == {}
 
 
-def test_legacy_courses_migrate_once_and_never_come_back(tmp_path, monkeypatch):
-    import json
-    main, shared, own = _shared_env(tmp_path, monkeypatch)
-    own.write_text(json.dumps({"workspaces": ["/a", "/b"], "model": "x"}), encoding="utf-8")
-    assert main._load_registry()["workspaces"] == ["/a", "/b"]
-    assert json.loads(own.read_text())["workspaces"] == []          # cleared at once
-    data = main._load_registry()
-    data["workspaces"].remove("/a")
-    main._save_registry(data)
-    assert main._load_registry()["workspaces"] == ["/b"]
+def test_the_default_registry_looks_in_the_old_places(monkeypatch):
+    monkeypatch.delenv("STUDY_REGISTRY", raising=False)
+    for prefix in ("STUDYCLAUDE_", "OPENSTUDY_"):
+        monkeypatch.delenv(prefix + "REGISTRY", raising=False)
+    sources = m._legacy_sources()
+    assert sources["courses"].name == "study-courses.json"
+    assert sources["openstudy"].parts[-3:] == ("openstudy", "data", "registry.json")
 
 
-def test_an_unreadable_shared_file_blocks_course_edits(tmp_path, monkeypatch):
-    import json, pytest
-    main, shared, own = _shared_env(tmp_path, monkeypatch)
-    main._save_registry(dict(main._load_registry(), workspaces=["/a", "/b"]))
-    shared.write_text('{"workspaces": ["/a", "/b"', encoding="utf-8")    # half-written
-    data = main._load_registry()
-    assert data["workspaces"] == ["/a", "/b"]                           # read-only from the cache
-    data["model"] = "opus"
-    main._save_registry(data)                                           # settings still save
-    assert json.loads(own.read_text())["model"] == "opus"
-    assert json.loads(own.read_text())["workspaces"] == []
-    data = main._load_registry()
-    data["workspaces"].append("/c")
-    with pytest.raises(main.CourseListError):
-        main._save_registry(data)
-    assert shared.read_text(encoding="utf-8") == '{"workspaces": ["/a", "/b"'
-    assert json.loads(own.read_text())["workspaces"] == []              # no stale copy made
+# --- installer: two commands from one script, engine in the per-workspace icon ----
+
+class _Recorder:
+    calls = []
+
+    def __init__(self, script_path, metadata):
+        self.meta = metadata
+
+    def install(self):
+        _Recorder.calls.append(("install", self.meta))
+
+    def remove(self):
+        _Recorder.calls.append(("remove", self.meta))
 
 
-def test_a_cli_run_reports_an_unreadable_course_list(tmp_path, monkeypatch, capsys):
-    main, shared, own = _shared_env(tmp_path, monkeypatch)
-    main._save_registry(dict(main._load_registry(), workspaces=["/a"]))
-    shared.write_text("{", encoding="utf-8")
-    monkeypatch.setattr(main, "_main", lambda: main._save_registry(
-        dict(main._load_registry(), workspaces=["/a", "/c"])))
-    assert main.main() == 1
-    assert "Kursliste nicht lesbar" in capsys.readouterr().err
+@pytest.fixture
+def installer(monkeypatch):
+    import cli_tools_kit
+    _Recorder.calls = []
+    monkeypatch.setattr(cli_tools_kit, "ToolInstaller", _Recorder)
+    return _Recorder
 
 
-def test_a_read_only_session_never_writes_a_stale_list(tmp_path, monkeypatch):
-    import json
-    main, shared, own = _shared_env(tmp_path, monkeypatch)
-    main._save_registry(dict(main._load_registry(), workspaces=["/a"]))
-    shared.write_text("{", encoding="utf-8")
-    data = main._load_registry()                       # read-only, shows ["/a"]
-    assert data["workspaces"] == ["/a"]
-    shared.write_text(json.dumps({"workspaces": ["/a", "/b"]}), encoding="utf-8")  # repaired
-    data["model"] = "opus"
-    main._save_registry(data)
-    assert json.loads(shared.read_text())["workspaces"] == ["/a", "/b"]            # /b kept
-    assert json.loads(own.read_text())["model"] == "opus"
+def test_install_writes_both_commands(installer):
+    assert m._do_install_remove(remove=False) == 0
+    metas = [meta for _, meta in installer.calls]
+    assert [x.alias for x in metas] == ["studyclaude", "openstudy"]
+    assert [x.args for x in metas] == [["--engine", "claude"], ["--engine", "opencode"]]
 
 
-def test_a_settings_save_does_not_need_a_readable_list(tmp_path, monkeypatch):
-    import json
-    main, shared, own = _shared_env(tmp_path, monkeypatch)
-    main._save_registry(dict(main._load_registry(), workspaces=["/a"]))
-    data = main._load_registry()                       # loaded fine
-    shared.write_text("{", encoding="utf-8")           # breaks before the save
-    data["effort"] = "high"
-    main._save_registry(data)                          # unchanged courses: no error
-    assert json.loads(own.read_text())["effort"] == "high"
-    assert shared.read_text(encoding="utf-8") == "{"
+def test_remove_removes_both_commands(installer):
+    assert m._do_install_remove(remove=True) == 0
+    assert [(verb, x.alias) for verb, x in installer.calls] == [
+        ("remove", "studyclaude"), ("remove", "openstudy")]
 
 
-def test_a_settings_save_leaves_a_sibling_addition_alone(tmp_path, monkeypatch):
-    import json
-    main, shared, own = _shared_env(tmp_path, monkeypatch)
-    main._save_registry(dict(main._load_registry(), workspaces=["/a"]))
-    data = main._load_registry()
-    shared.write_text(json.dumps({"workspaces": ["/a", "/b"]}), encoding="utf-8")  # sibling adds
-    data["model"] = "opus"
-    main._save_registry(data)                          # courses unchanged by this tool
-    assert json.loads(shared.read_text())["workspaces"] == ["/a", "/b"]
-
-
-def test_one_dict_saved_twice_writes_each_change(tmp_path, monkeypatch):
-    import json
-    main, shared, own = _shared_env(tmp_path, monkeypatch)
-    data = main._load_registry()
-    data["workspaces"].append("/x")
-    main._save_registry(data)
-    assert json.loads(shared.read_text())["workspaces"] == ["/x"]
-    data["workspaces"].remove("/x")
-    main._save_registry(data)
-    assert json.loads(shared.read_text())["workspaces"] == []
+@pytest.mark.parametrize("engine, command", [("claude", "studyclaude"), ("opencode", "openstudy")])
+def test_a_workspace_icon_carries_its_engine(installer, tmp_path, monkeypatch, engine, command):
+    monkeypatch.setattr(m, "ENGINE", engine)
+    ws = _courses(tmp_path, "Mathe 1")[0]
+    assert m._do_install_remove(remove=False, workspace=ws) == 0
+    (verb, meta), = installer.calls
+    assert meta.args == [ws, "--engine", engine]
+    assert meta.alias == f"{command}_mathe_1" and meta.desktop_file == f"{command}_mathe_1.desktop"

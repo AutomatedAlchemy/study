@@ -1,7 +1,7 @@
 # Arbeitsmedium-Mechanik: Tutor Board
 
 **Voraussetzung:** Das Board braucht ein Tutor-Board-Konto (Einladung nötig,
-beta.probable.work). Die MCP-Verbindung wird außerhalb von studyclaude
+beta.probable.work). Die MCP-Verbindung wird außerhalb von study
 konfiguriert.
 
 **Bedienung des Boards:** den Tool-Beschreibungen und den Server-Instructions des
@@ -238,8 +238,8 @@ trägt eine Idee, in der sich etwas bewegt: eine Funktion, die sich verändert, 
 Ableitung als Tangente, ein Vektor, der sich dreht, eine Konvergenz, eine Skizze,
 die entsteht.
 
-- **Per Sonnet-Subagent, nicht im eigenen Kontext** (Token-Sparsamkeit; Nutzervorgabe 08.10.2026: Subagenten nie auf Opus): `Agent` mit
-  `model: sonnet`, Auftrag = Skill `manim-kit` laden, eine Szene, 15–25 s, eine Idee,
+- **Per Subagent, nicht im eigenen Kontext** (Token-Sparsamkeit; Nutzervorgabe 08.10.2026: Subagenten nie auf Opus): unter Claude Code `Agent` mit
+  `model: sonnet`, unter opencode das Task-Tool, Auftrag = Skill `manim-kit` laden, eine Szene, 15–25 s, eine Idee,
   **1080p bei 60 fps** (`-q h`, manim-kit-Standard; Nutzervorgabe 18.09.2026, nie Draft-Qualität), unter 8 MB je Clip (längere Videos als Einzelclips, nicht herunterkomprimieren), die Standard-Tonspur/Musik des manim-kit **nicht** abbestellen;
   Rückgabe **nur** der mp4-Pfad (oder
   `RENDER FAILED: <Grund>`).

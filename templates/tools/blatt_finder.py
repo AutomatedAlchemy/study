@@ -14,7 +14,7 @@ Vorgehen
 2. fragen.json: Liste von {nr, frage, titel, typ, gruppe}. frage wörtlich aus dem Pool,
    titel in wenigen Wörtern, typ R/Z/E (Rechnen/Zeichnen/Erklären, darf fehlen),
    gruppe = Abschnitt des Pools (Vorlesung, Kapitel; darf fehlen).
-3. Zuordnung durch Subagenten mit model sonnet, je 30 bis 40 Fragen einer. Jeder bekommt das Blatt mit
+3. Zuordnung durch Subagenten (unter Claude Code mit model sonnet), je 30 bis 40 Fragen einer. Jeder bekommt das Blatt mit
    Zeilennummern, seine Fragen und dieses Format und schreibt eine Datei map_<von>_<bis>.json:
    Liste von {nr, abdeckung, hinweis, treffer: [{zeile, text}]}.
    - abdeckung: "voll" (das Blatt reicht für die Antwort), "teilweise" (es hilft, ein Teil

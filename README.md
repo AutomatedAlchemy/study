@@ -1,22 +1,32 @@
-# studyclaude
+# study (studyclaude / openstudy)
 
 A stdlib-only launcher that starts [Claude Code](https://claude.com/claude-code)
-inside an exam-prep folder, so that folder's `CLAUDE.md` drives the study loop:
+or [opencode](https://opencode.ai) inside an exam-prep folder, so that folder's `CLAUDE.md` drives the study loop:
 open your reference sheets and the newest problem set, then feed you one
 bite-sized exercise at a time, personalised from your actual mistakes. The
 launcher encodes no study procedure: about 2000 lines that pick a folder, pick a
 model and send a "let's study" trigger, so you improve the loop by editing a
 workspace's `CLAUDE.md`, not this code. Tested on Linux with KDE.
 
-Formerly **lernclaude** (renamed 2026-10-18): the alias `lernen` is now
-`studyclaude`, and the environment variables `LERNCLAUDE_*` are now `STUDYCLAUDE_*`.
+**One tool, two commands.** `studyclaude` runs the session in Claude Code, `openstudy` in
+opencode (`main.py --engine claude|opencode`). The Lern-Loop, menu and courses are the
+same; only the launch and these settings differ per engine: model, effort and working
+medium. The courses, the default course, the exam file and the Quickie streak are
+shared. openstudy used to be its own repo (now archived); studyclaude was formerly
+**lernclaude** (renamed 2026-10-18).
+
+Differences when the engine is opencode: no `--append-system-prompt`, so the launcher
+writes the prompt to `$XDG_RUNTIME_DIR/study/prompt-<hash>.md` and passes it, with the
+course's `CLAUDE.md`, as `instructions`; the **Tutor Board and Google Calendar are not
+connected** (Claude Code gets them as claude.ai connectors, opencode needs its own MCP
+entry), so use the Xournal++ medium there; subagents run on the session's model.
 
 > **The tool speaks German** — prompts, workspace template, menu. The loop itself
 > is language-agnostic: [docs/workspace.md](docs/workspace.md#using-it-in-another-language).
 
 ## Requirements
 
-- [Claude Code](https://claude.com/claude-code) on your `PATH`
+- [Claude Code](https://claude.com/claude-code) (for `studyclaude`) and/or [opencode](https://opencode.ai) (for `openstudy`) on your `PATH`
 - Python 3.9+, **standard library only** (`requirements.txt` is empty)
 - `konsole` (KDE) for the windowed launch; without it, it runs in your terminal
 
@@ -26,7 +36,8 @@ Formerly **lernclaude** (renamed 2026-10-18): the alias `lernen` is now
 git clone https://github.com/AutomatedAlchemy/studyclaude.git
 cd studyclaude
 python3 main.py          # menu; first entry is "neuen Kurs anlegen"
-python3 main.py --install # desktop icon + `studyclaude` alias
+python3 main.py --install # desktop icons + the `studyclaude` and `openstudy` aliases
+python3 main.py --engine opencode   # run with opencode instead of Claude Code
 ```
 
 *neuen Kurs anlegen* starts a Claude session that searches your filesystem with
@@ -72,7 +83,7 @@ Sessions work either in **Xournal++ + Firefox** (the default: exercise PDF in th
 browser, calculations on a separate `.xopp` sheet) or on a **Tutor Board** (a web
 whiteboard, one tab per exercise, needs an account on the author's invite-only
 service). Switch with `m`, `studyclaude --set-medium xournalpp|board` or
-`STUDYCLAUDE_MEDIUM`; verbal mid-session switch and per-course pin in
+`STUDY_MEDIUM`; verbal mid-session switch and per-course pin in
 [docs/workspace.md](docs/workspace.md#the-medium-switch). How many sketches and
 clips a course gets is one Eckdaten row in its `CLAUDE.md`, see
 [docs/workspace.md](docs/workspace.md#visuals-per-course).
@@ -93,7 +104,7 @@ answers the selected question. See
 
 ## The exam banner
 
-Set `STUDYCLAUDE_EXAMS` (or the registry key `"exams_file"`) to a markdown file of
+Set `STUDY_EXAMS` (or the registry key `"exams_file"`) to a markdown file of
 exam dates and the menu lists the upcoming ones above the courses: soonest first,
 days left, red inside three days, yellow inside ten. Unset, no banner. It reads
 every table with **both** a date column (`Termin`, `Datum`, `Date`, `When`) and a
@@ -124,18 +135,24 @@ inbox. No file, no rule.
 
 All optional.
 
+Every variable is read as `STUDY_<NAME>`; the old `STUDYCLAUDE_<NAME>` and
+`OPENSTUDY_<NAME>` still work as fallbacks for one release (`STUDY_*` wins).
+
 | Variable | Effect |
 |---|---|
-| `STUDYCLAUDE_REGISTRY` | Path to the course registry (default: `./data/registry.json`) |
-| `STUDYCLAUDE_DEFAULT_WORKSPACE` | Override the registered default for one launch |
-| `STUDYCLAUDE_ROOT` | Where guided onboarding starts searching (default: `$HOME`) |
-| `STUDYCLAUDE_EXAMS` | Markdown file with your exam-date table (banner off when unset; registry key `exams_file` does the same) |
-| `STUDYCLAUDE_MEDIUM` | Override the working medium for one launch (`xournalpp` \| `board`) |
+| `STUDY_ENGINE` | Default engine when `--engine` is not given (`claude` \| `opencode`) |
+| `STUDY_REGISTRY` | Path to the registry (default: `./data/registry.json`) |
+| `STUDY_DEFAULT_WORKSPACE` | Override the registered default for one launch |
+| `STUDY_ROOT` | Where guided onboarding starts searching (default: `$HOME`) |
+| `STUDY_EXAMS` | Markdown file with your exam-date table (banner off when unset; registry key `exams_file` does the same) |
+| `STUDY_MEDIUM` | Override the working medium for one launch (`xournalpp` \| `board`) |
 
-Registered courses are shared with openstudy: both read and write
-`~/.config/study-courses.json` (override with `STUDY_COURSES`). Model, effort, default,
-medium and the other settings stay in the gitignored `data/registry.json`. With
-`STUDYCLAUDE_REGISTRY` set, the courses stay in that registry instead.
+Courses and settings live in the gitignored `data/registry.json`, in the tool's own
+directory rather than `~/.config`, so a synced or shared checkout carries the same
+course list on every machine. Model, effort and medium are stored per engine under
+`engines.<engine>`. The first start migrates the two old layouts once: a registry with
+top-level `model`/`effort`/`medium` (studyclaude), the old openstudy registry and
+`~/.config/study-courses.json`. After that, a course you remove stays removed.
 
 Sessions launch on **Opus at `medium` effort**. Medium is deliberate: the loop is
 interactive tutoring, where latency is felt more than reasoning depth helps. `o`

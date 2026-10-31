@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
-"""studyclaude — spawn a Claude Code session that runs a personalized exam-prep Lern-Loop.
+"""study — spawn a Claude Code or opencode session that runs a personalized exam-prep Lern-Loop.
+
+One codebase, two engines: `--engine claude` (command `studyclaude`) and `--engine opencode`
+(command `openstudy`). The engine only changes how the session is launched and which
+model/effort/medium settings apply; the Lern-Loop, menu and courses are the same.
 
 A classclaude/surfclaude/bootclaude sibling. Launches a `claude` session straight
 inside an exam-prep **workspace folder** and kicks off that folder's "Lern-Loop".
@@ -30,40 +34,56 @@ Launch modes:
     studyclaude --remove  [ws]      -> remove that icon + alias
 """
 import json
+import os
 import sys
 
 # --advertise must answer before any heavy import (installer 5s timeout).
-PARENT_METADATA = {
-    "name": "studyclaude",
+_ICON_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets")
+_ENTRY_COMMON = {
     "capability": "agent",
     "domain": "study-prep",
     "category": "personal",
-    "desktop_file": "studyclaude.desktop",
-    "icon": "accessories-text-editor",
-    "desc": "Spawn a Claude session that runs a personalized exam-prep Lern-Loop in a workspace",
     "terminal": False,
-    "args": [],
     "tags": ["CLI", "Icon"],
-    "alias": "studyclaude",
     # Autostart is the installer's to toggle (cli-tools-kit symlinks this tool's
-    # .desktop into ~/.config/autostart); `True` only pre-ticks its checkbox.
-    # The entry runs the icon's argument-less Exec, which is the menu — never a
-    # session directly, so the 10s countdown and its any-key cancel still apply.
-    "default_autostart": True,
+    # .desktop into ~/.config/autostart); `default_autostart` only pre-ticks its checkbox.
+    # The entry runs the icon's Exec, which is the menu — never a session directly,
+    # so the 10s countdown and its any-key cancel still apply.
     # Studying is a morning habit, so the login entry is worth gating on the
     # clock. Only the KIND is named here — the window itself is personal and
     # lives in the installer's autostart.json, per host. Needs cli-tools-kit
     # >= 0.8.0; older installers ignore the field and start it every login.
     "autostart_conditions": ["time_window"],
-    # Deliberately NO skill_name: studyclaude is an agent you talk to, not a skill.
+    # Deliberately NO skill_name: this is an agent you talk to, not a skill.
+}
+# One entry per engine, like bootclaude's variants: two commands, one script.
+ENTRIES = {
+    "claude": dict(_ENTRY_COMMON, **{
+        "name": "studyclaude",
+        "desktop_file": "studyclaude.desktop",
+        "icon": "accessories-text-editor",
+        "desc": "Spawn a Claude session that runs a personalized exam-prep Lern-Loop in a workspace",
+        "args": ["--engine", "claude"],
+        "alias": "studyclaude",
+        "default_autostart": True,
+    }),
+    "opencode": dict(_ENTRY_COMMON, **{
+        "name": "openstudy",
+        "desktop_file": "openstudy.desktop",
+        "icon": os.path.join(_ICON_DIR, "openstudy.svg"),
+        "desc": "Spawn an opencode session that runs a personalized exam-prep Lern-Loop in a workspace",
+        "args": ["--engine", "opencode"],
+        "alias": "openstudy",
+        # Off by default so it does not race studyclaude's menu at login.
+        "default_autostart": False,
+    }),
 }
 
 if "--advertise" in sys.argv:
-    print(json.dumps([PARENT_METADATA]))
+    print(json.dumps(list(ENTRIES.values())))
     sys.exit(0)
 
 import argparse
-import os
 import re
 import shutil
 import subprocess
@@ -75,6 +95,41 @@ from typing import Any
 SCRIPT_DIR = Path(__file__).resolve().parent
 TEMPLATE_DIR = SCRIPT_DIR / "templates"
 
+# ----------------------------------------------------------------------------
+# engine: which agent a session runs in (`--engine`, set once at start-up)
+# ----------------------------------------------------------------------------
+ENGINES = ("claude", "opencode")
+_COMMANDS = {"claude": "studyclaude", "opencode": "openstudy"}
+# Old prefixes keep working as fallbacks for one release (README, "Environment").
+_ENV_PREFIXES = ("STUDY_", "STUDYCLAUDE_", "OPENSTUDY_")
+
+
+def _env(name: str, default: "str | None" = None) -> "str | None":
+    """``STUDY_<name>``, else the old ``STUDYCLAUDE_<name>`` / ``OPENSTUDY_<name>``."""
+    for prefix in _ENV_PREFIXES:
+        value = os.environ.get(prefix + name)
+        if value:
+            return value
+    return default
+
+
+def _initial_engine() -> str:
+    value = (_env("ENGINE") or "claude").strip().lower()
+    return value if value in ENGINES else "claude"
+
+
+ENGINE = _initial_engine()
+
+
+def _set_engine(name: str) -> None:
+    global ENGINE
+    ENGINE = name
+
+
+def _command_name() -> str:
+    """The command the user typed for this engine: `studyclaude` or `openstudy`."""
+    return _COMMANDS[ENGINE]
+
 # `tier` is a sibling module. Running main.py directly puts SCRIPT_DIR on the
 # path automatically, but importing it by file location (as the tests do) does
 # not — so make the sibling import work either way.
@@ -85,18 +140,18 @@ if str(SCRIPT_DIR) not in sys.path:
 def _material_root() -> str:
     """Where the onboarding session starts browsing for course material.
 
-    Set ``STUDYCLAUDE_ROOT`` to the folder your study material lives under (the
+    Set ``STUDY_ROOT`` to the folder your study material lives under (the
     parent of your per-subject workspaces). Defaults to ``$HOME``, which just
     means onboarding starts its search a little wider.
     """
-    return os.path.expanduser(os.environ.get("STUDYCLAUDE_ROOT", "~"))
+    return os.path.expanduser(_env("ROOT", "~"))
 
 
 def _default_workspace() -> "str | None":
     """The workspace a bare launch targets, or ``None`` on a fresh install.
 
     This is the registry's ``default`` field (set in the menu with ``d``, or via
-    ``--set-default``). ``STUDYCLAUDE_DEFAULT_WORKSPACE`` overrides it for
+    ``--set-default``). ``STUDY_DEFAULT_WORKSPACE`` overrides it for
     scripts and one-off launches. There is deliberately no built-in default:
     a fresh clone has no idea what you study, so it opens the menu instead.
 
@@ -105,7 +160,7 @@ def _default_workspace() -> "str | None":
     the first course. So does a retired sentinel another host left in the
     shared registry: only a registered course counts.
     """
-    env = os.environ.get("STUDYCLAUDE_DEFAULT_WORKSPACE")
+    env = _env("DEFAULT_WORKSPACE")
     if env:
         return str(Path(os.path.expanduser(env)).resolve())
     data = _load_registry()
@@ -160,6 +215,10 @@ def _launch_env() -> dict:
     # session. A Lern-Loop backgrounds a wait and the odd manim render —
     # nothing here is worth reclaiming.
     env["CLAUDE_CODE_DISABLE_BG_SHELL_PRESSURE_REAP"] = "1"
+    # opencode installs to ~/.opencode/bin, which a .desktop launch lacks.
+    oc_bin = os.path.expanduser("~/.opencode/bin")
+    if os.path.isdir(oc_bin) and oc_bin not in env.get("PATH", "").split(os.pathsep):
+        env["PATH"] = oc_bin + os.pathsep + env.get("PATH", "")
     return env
 
 
@@ -176,7 +235,7 @@ _MEDIUM_LABELS = {"xournalpp": "Xournal++ + Firefox", "board": "Tutor Board"}
 
 def _current_medium() -> str:
     """The active medium: env override, else registry, else xournalpp."""
-    raw = (os.environ.get("STUDYCLAUDE_MEDIUM")
+    raw = (_env("MEDIUM")
            or _load_registry().get("medium") or "xournalpp")
     med = raw.strip().lower()
     return med if med in _MEDIA else "xournalpp"
@@ -232,25 +291,61 @@ def _model_label(model: str) -> str:
     return _ANTHROPIC_MODEL_LABELS.get(model, model)
 
 
-def _backend_cmd() -> list[str]:
-    """Return the base command tokens for the launcher.
+# opencode model ids per menu alias. The registry keeps the short alias.
+_OPENCODE_MODEL_IDS = {
+    "opus": "anthropic/claude-opus-5-5",
+    "sonnet": "anthropic/claude-sonnet-5-5",
+    "fable": "anthropic/claude-fable-5-1",
+}
 
-    Returns:
-        List of strings constituting the base executable command.
+
+def _quickie_workdir(workspaces: list) -> str:
+    """A single course is the session's home, several start at their common root."""
+    return workspaces[0] if len(workspaces) == 1 else _tutor_workdir(workspaces)
+
+
+def _prompt_file(prompt: str) -> str:
+    """Write the launcher prompt to a file that outlives the exec and return its path.
+
+    opencode has no --append-system-prompt; the file goes in as an `instructions`
+    entry, which appends like a rules file. The name carries a hash of the text,
+    so parallel sessions never overwrite each other.
     """
-    return ["claude"]
+    import hashlib
+    base = Path(os.environ.get("XDG_RUNTIME_DIR") or f"/tmp/study-{os.getuid()}") / "study"
+    base.mkdir(parents=True, exist_ok=True, mode=0o700)
+    path = base / f"prompt-{hashlib.sha256(prompt.encode('utf-8')).hexdigest()[:16]}.md"
+    path.write_text(prompt, encoding="utf-8")
+    return str(path)
 
 
-def _backend_model_args() -> list[str]:
-    """Generate model and effort CLI argument flags.
+def _backend_launch(prompt: str, workdir: str) -> list[str]:
+    """The command prefix that starts the engine with `prompt` appended.
 
-    Returns:
-        List of argument flag strings.
+    claude: `--append-system-prompt`. opencode v2 has none and does not read
+    CLAUDE.md, so the prompt file and the course's CLAUDE.md go in as
+    `instructions`; `--standalone` is needed because the background service
+    ignores OPENCODE_CONFIG_CONTENT. The config rides in through `env`.
     """
+    if ENGINE == "claude":
+        return ["claude", "--model", _select_model(), "--effort", _select_effort(),
+                "--append-system-prompt", prompt]
+    instructions = [_prompt_file(prompt)]
+    course_md = Path(workdir) / "CLAUDE.md"
+    if course_md.is_file():
+        instructions.append(str(course_md))
+    config = json.dumps({"instructions": instructions}, ensure_ascii=False)
+    model = _OPENCODE_MODEL_IDS[_select_model()]
     return [
-        "--model", _select_model(),
-        "--effort", _select_effort(),
+        "env", f"OPENCODE_CONFIG_CONTENT={config}",
+        "opencode", "--standalone",
+        "-m", f"{model}#{_select_effort()}",
     ]
+
+
+def _opening_args(message: str) -> list[str]:
+    """The first user message: positional for claude, `--prompt` for opencode."""
+    return [message] if ENGINE == "claude" else ["--prompt", message]
 
 
 def _current_model() -> str:
@@ -327,6 +422,15 @@ def _catchall_brief() -> str:
     )
 
 
+def _subagent_rule() -> str:
+    if ENGINE == "claude":
+        return ("Subagenten (Agent-Tool) startest du immer mit ausdrücklichem Modell: "
+                "`model: sonnet`, für einfache Arbeit wie Suchen oder Abschreiben "
+                "`model: haiku`. Nie opus.")
+    return ("Subagenten (Task-Tool) nimmst du nur für abgegrenzte Teilarbeit wie "
+            "Suchen oder Abschreiben. Sie laufen auf dem Modell der Session.")
+
+
 def _prompt_common() -> str:
     """The launcher-owned orientation every session gets: the active medium and
     its mechanics, the no-LaTeX terminal rule, and today's date."""
@@ -335,7 +439,7 @@ def _prompt_common() -> str:
     text = (
         "<orientierung>\n"
         f"Arbeitsmedium dieser Session: {_MEDIUM_LABELS[medium]} — gesetzt über "
-        "den Umschalter im studyclaude-Menü, nicht erfragen. Die Mechanik des Mediums "
+        f"den Umschalter im {_command_name()}-Menü, nicht erfragen. Die Mechanik des Mediums "
         "steht unten. Der User darf mitten im Lernen wechseln („lass uns aufs "
         "Board“, „zurück zu Xournal“) — dann ab dem nächsten Häppchen im neuen "
         "Medium weiterarbeiten und ihn erinnern, fürs nächste Mal den Schalter "
@@ -347,9 +451,7 @@ def _prompt_common() -> str:
         "(a+b)/c). Das gilt nur für den Chat: in den .tex-Dateien der Häppchen "
         "und überall, wo das Arbeitsmedium LaTeX rendert (Tutor Board), "
         "schreibst du LaTeX wie in der Medium-Mechanik unten beschrieben.\n\n"
-        "Subagenten (Agent-Tool) startest du immer mit ausdrücklichem Modell: "
-        "`model: sonnet`, für einfache Arbeit wie Suchen oder Abschreiben "
-        "`model: haiku`. Nie opus.\n"
+        f"{_subagent_rule()}\n"
         "</orientierung>\n\n"
         f"<heute>\n# Heute: {today}\n</heute>\n"
     )
@@ -494,10 +596,8 @@ def _build_argv(workspace: str) -> list[str]:
         Complete command-line argument list for launching the session.
     """
     return [
-        *_backend_cmd(),
-        *_backend_model_args(),
-        "--append-system-prompt", _assemble_prompt(workspace),
-        opening_message(workspace),
+        *_backend_launch(_assemble_prompt(workspace), workspace),
+        *_opening_args(opening_message(workspace)),
     ]
 
 
@@ -521,7 +621,7 @@ def _exec_or_konsole(inner: list[str], workdir: str, *, inline: bool) -> int:
         # into the konsole spawn below (it once opened three real windows).
         return 0
     konsole_cmd = [
-        "konsole", "--workdir", workdir, "-p", "tabtitle=studyclaude", "-e", *inner,
+        "konsole", "--workdir", workdir, "-p", f"tabtitle={_command_name()}", "-e", *inner,
     ]
     try:
         subprocess.Popen(konsole_cmd, start_new_session=True, env=env)
@@ -541,7 +641,7 @@ def launch(workspace: str, *, inline: bool = False) -> int:
         return 1
     if not os.path.isfile(os.path.join(workspace, "CLAUDE.md")):
         print(f"Warning: {workspace}/CLAUDE.md not found — the Lern-Loop procedure "
-              "lives there. Run `studyclaude` and pick \u201eneuen Kurs anlegen\u201c to set the folder up.")
+              f"lives there. Run `{_command_name()}` and pick \u201eneuen Kurs anlegen\u201c to set the folder up.")
     return _exec_or_konsole(_build_argv(workspace), workspace, inline=inline)
 
 
@@ -597,7 +697,7 @@ def opening_message_onboard() -> str:
         "nehmen) und stimme ihn mit mir ab — frag nach, entscheide nicht allein.\n"
         "3. Sobald wir uns einig sind, registriere + scaffolde den Ordner mit genau diesem Befehl:\n"
         f"     {_tool_cmd()} --register <ABSOLUTER_PFAD>\n"
-        "   Das legt die minimalen studyclaude-Dateien an (CLAUDE.md aus dem Template + todo.md + "
+        "   Das legt die minimalen study-Dateien an (CLAUDE.md aus dem Template + todo.md + "
         "fehlermuster.md + Ordner Personalisierte_Übungen/) und trägt den Kurs ins Startmenü ein.\n"
         "4. Danach: sichte das Material und fülle in der CLAUDE.md die Eckdaten (Fach, Klausurdatum/"
         "-modus, Hilfsmittel) UND den Themenkarte-Abschnitt aus (Klausur-Themen + je Thema die typische "
@@ -615,7 +715,7 @@ def _assemble_onboard_prompt() -> str:
     """System prompt for the onboarding session. It builds the Kursübersicht in
     the active medium, so it needs the medium mechanics like every session."""
     return (
-        "Du hilfst dem User, einen neuen Lern-Loop-Kurs für das Tool 'studyclaude' anzulegen: "
+        "Du hilfst dem User, einen neuen Lern-Loop-Kurs für das Tool 'study' anzulegen: "
         "gemeinsam einen Ordner für Material + personalisierte Lern-Dateien finden/festlegen, "
         "dann per angegebenem Befehl registrieren.\n\n"
         + _prompt_common()
@@ -631,10 +731,8 @@ def do_add() -> int:
     root = _material_root()
     workdir = root if os.path.isdir(root) else str(Path.home())
     inner = [
-        *_backend_cmd(),
-        *_backend_model_args(),
-        "--append-system-prompt", _assemble_onboard_prompt(),
-        opening_message_onboard(),
+        *_backend_launch(_assemble_onboard_prompt(), workdir),
+        *_opening_args(opening_message_onboard()),
     ]
     env = _launch_env()
     os.chdir(workdir)
@@ -652,7 +750,7 @@ def do_register(path: str) -> int:
     _scaffold_workspace(ws)
     _register_workspace(ws)
     print(f"Registered + scaffolded course: {ws}")
-    print("Es erscheint ab jetzt im `studyclaude`-Startmenü.")
+    print(f"Es erscheint ab jetzt im `{_command_name()}`-Startmenü.")
     return 0
 
 
@@ -666,38 +764,13 @@ def do_register(path: str) -> int:
 def _registry_path() -> Path:
     """Read from env each call so tests can redirect it after import."""
     return Path(os.path.expanduser(
-        os.environ.get("STUDYCLAUDE_REGISTRY", str(SCRIPT_DIR / "data" / "registry.json"))))
+        _env("REGISTRY", str(SCRIPT_DIR / "data" / "registry.json"))))
 
 
-def _courses_path() -> "Path | None":
-    """The course list both openstudy and studyclaude read and write.
-
-    ``~/.config/study-courses.json``, or ``STUDY_COURSES``. Only the list of
-    courses is shared; model, effort, default, medium and the rest stay in each
-    tool's own registry. With ``STUDYCLAUDE_REGISTRY`` set the courses stay in that registry
-    (tests and one-off setups), so they never touch the shared file.
-    """
-    if os.environ.get("STUDYCLAUDE_REGISTRY"):
-        return None
-    return Path(os.path.expanduser(
-        os.environ.get("STUDY_COURSES", "~/.config/study-courses.json")))
-
-
-class CourseListError(OSError):
-    """The shared course list cannot be read, so the courses cannot be changed."""
-
-
-def _read_courses(p: Path) -> "list | None":
-    """The shared list; ``[]`` when the file is missing, ``None`` when it exists
-    but cannot be read (a sibling mid-write, a corrupt file). That one is never
-    overwritten."""
-    if not p.exists():
-        return []
-    try:
-        items = json.loads(p.read_text(encoding="utf-8")).get("workspaces")
-    except (OSError, ValueError, AttributeError):
-        return None
-    return [w for w in items if isinstance(w, str)] if isinstance(items, list) else None
+# Settings that depend on the engine. In memory they sit at the top level of the
+# registry dict (the menu reads and writes `data["model"]` and so on) for the
+# active engine; on disk they live under `engines.<engine>`.
+_ENGINE_KEYS = ("model", "effort", "medium")
 
 
 def _atomic_write(p: Path, payload: dict) -> None:
@@ -707,78 +780,84 @@ def _atomic_write(p: Path, payload: dict) -> None:
     os.replace(tmp, p)
 
 
-def _write_courses(p: Path, courses: list) -> None:
-    _atomic_write(p, {"workspaces": courses})
-
-
-def _cache_path() -> Path:
-    """The last good copy of the shared list, shown read-only while it is unreadable."""
-    return _registry_path().with_name("courses-cache.json")
-
-
-def _refresh_cache(courses: list) -> None:
-    """Keep the last good copy; only write when it changed, and never fail a read."""
-    p = _cache_path()
+def _read_json(p: Path) -> dict:
     try:
-        if p.exists() and _read_courses(p) == courses:
-            return
-        _write_courses(p, courses)
-    except OSError:
-        pass
+        data = json.loads(p.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def _legacy_sources() -> dict:
+    """Where the two tools that were merged into this one kept their data.
+
+    Only for a registry at its default place: one redirected with ``STUDY_REGISTRY``
+    (tests, one-off setups) never reads the user's real files.
+    """
+    if _env("REGISTRY"):
+        return {}
+    return {
+        "courses": Path(os.path.expanduser(
+            os.environ.get("STUDY_COURSES", "~/.config/study-courses.json"))),
+        "openstudy": SCRIPT_DIR.parent / "openstudy" / "data" / "registry.json",
+    }
+
+
+def _migrate_legacy(data: dict, sources: "dict | None" = None) -> dict:
+    """Fold the old layouts into this registry, once (``"migrated": true``).
+
+    studyclaude kept ``model``/``effort``/``medium`` at the top level (they become
+    the claude settings). openstudy had its own registry (its settings become the
+    opencode ones) and, for a while, the course list lived in
+    ``~/.config/study-courses.json``. Courses are united in that order. The marker
+    keeps a course the user removes later from coming back.
+    """
+    if data.get("migrated"):
+        return data
+    sources = _legacy_sources() if sources is None else sources
+    engines = data.setdefault("engines", {})
+    for key in _ENGINE_KEYS:
+        if key in data:
+            engines.setdefault("claude", {}).setdefault(key, data.pop(key))
+    courses = [w for w in data.get("workspaces") or [] if isinstance(w, str)]
+    if "courses" in sources:
+        shared = _read_json(Path(sources["courses"])).get("workspaces")
+        courses += [w for w in shared or [] if isinstance(w, str) and w not in courses]
+    if "openstudy" in sources and Path(sources["openstudy"]) != _registry_path():
+        old = _read_json(Path(sources["openstudy"]))
+        courses += [w for w in old.get("workspaces") or []
+                    if isinstance(w, str) and w not in courses]
+        for key in _ENGINE_KEYS:
+            if key in old:
+                engines.setdefault("opencode", {}).setdefault(key, old[key])
+    data["workspaces"] = courses
+    data["migrated"] = True
+    _atomic_write(_registry_path(), data)
+    return data
 
 
 def _load_registry() -> dict:
-    try:
-        data = json.loads(_registry_path().read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        data = {}
+    data = _migrate_legacy(_read_json(_registry_path()))
     data.setdefault("workspaces", [])
     data.setdefault("default", None)
-    shared = _courses_path()
-    if shared is None:
-        return data
-    courses = _read_courses(shared)
-    if courses is None:
-        # Unreadable: show the last good copy, change nothing (see _save_registry).
-        cached = _read_courses(_cache_path()) if _cache_path().exists() else None
-        data["workspaces"] = cached if cached is not None else data["workspaces"]
-        data["_courses_readonly"] = list(data["workspaces"])
-        return data
-    legacy = [w for w in data["workspaces"] if w not in courses]
-    if data["workspaces"]:
-        # Courses an older version kept in this registry: moved once, never merged back.
-        if legacy:
-            courses = courses + legacy
-            _write_courses(shared, courses)
-        _atomic_write(_registry_path(), dict(data, workspaces=[]))
-    data["workspaces"] = courses
-    data["_courses_loaded"] = list(courses)
-    _refresh_cache(courses)
+    mine = (data.get("engines") or {}).get(ENGINE) or {}
+    for key in _ENGINE_KEYS:
+        data.pop(key, None)
+        if key in mine:
+            data[key] = mine[key]
     return data
 
 
 def _save_registry(data: dict) -> None:
-    """Save the settings; write the course list only when it changed since the load.
-
-    A session that loaded the list read-only never writes it, even when the file
-    is readable again by now: the cached list it shows may be stale.
-    """
-    caller, data = data, dict(data)
-    readonly = data.pop("_courses_readonly", None)
-    loaded = data.pop("_courses_loaded", None)
-    shared = _courses_path()
-    if shared is not None:
-        courses = list(data["workspaces"])
-        baseline = readonly if readonly is not None else loaded
-        if courses != baseline:
-            if readonly is not None or _read_courses(shared) is None:
-                raise CourseListError(
-                    f"Kursliste nicht lesbar ({shared}); Kurse bleiben unverändert.")
-            _write_courses(shared, courses)
-            _refresh_cache(courses)
-            caller["_courses_loaded"] = courses   # the next save compares with this write
-        data = dict(data, workspaces=[])
-    _atomic_write(_registry_path(), data)
+    out = dict(data)
+    engines = {name: dict(values) for name, values in (out.get("engines") or {}).items()}
+    mine = engines.setdefault(ENGINE, {})
+    for key in _ENGINE_KEYS:
+        if key in out:
+            mine[key] = out.pop(key)
+    out["engines"] = engines
+    out["migrated"] = True
+    _atomic_write(_registry_path(), out)
 
 
 def _ensure_default(data: dict) -> dict:
@@ -889,7 +968,7 @@ def _archive_workspace(path: str, registered: list[str] = ()) -> Path:
 # ----------------------------------------------------------------------------
 # exam calendar (optional): a markdown table of upcoming exams, shown in the menu
 # ----------------------------------------------------------------------------
-# The file is *not* built in: set ``STUDYCLAUDE_EXAMS`` to a markdown file, or put
+# The file is *not* built in: set ``STUDY_EXAMS`` to a markdown file, or put
 # its path in the registry as ``exams_file``. Any markdown table in that file is
 # read when it has both a date column (Termin/Datum/Date) and a label column
 # (Fach/Kurs/Modul/Prüfung/Subject/Course) — everything else in the file is
@@ -905,7 +984,7 @@ _WEEKDAYS_DE = ("Mo", "Di", "Mi", "Do", "Fr", "Sa", "So")
 
 def _exams_path() -> "str | None":
     """Where the exam table lives, or None if the user has not pointed at one."""
-    env = os.environ.get("STUDYCLAUDE_EXAMS")
+    env = _env("EXAMS")
     if env:
         return os.path.expanduser(env)
     entry = _load_registry().get("exams_file")
@@ -1422,13 +1501,10 @@ def _launch_quickie(data: dict, *, inline: bool) -> int:
     streak, total = _record_quickie(data)
     _save_registry(data)
     inner = [
-        *_backend_cmd(),
-        *_backend_model_args(),
-        "--append-system-prompt", _assemble_quickie_prompt(workspaces),
-        opening_message_quickie(workspaces, streak, total),
+        *_backend_launch(_assemble_quickie_prompt(workspaces), _quickie_workdir(workspaces)),
+        *_opening_args(opening_message_quickie(workspaces, streak, total)),
     ]
-    workdir = workspaces[0] if len(workspaces) == 1 else _tutor_workdir(workspaces)
-    return _exec_or_konsole(inner, workdir, inline=inline)
+    return _exec_or_konsole(inner, _quickie_workdir(workspaces), inline=inline)
 
 # ----------------------------------------------------------------------------
 # Gärtner: a maintenance session, not a study session. The user tells it in
@@ -1497,10 +1573,8 @@ def _launch_gaertner(data: dict, focus: list, *, inline: bool) -> int:
     so it can work across all of them."""
     workspaces = data["workspaces"]
     inner = [
-        *_backend_cmd(),
-        *_backend_model_args(),
-        "--append-system-prompt", _assemble_gaertner_prompt(),
-        opening_message_gaertner(workspaces, focus),
+        *_backend_launch(_assemble_gaertner_prompt(), _tutor_workdir(list(workspaces) + list(focus))),
+        *_opening_args(opening_message_gaertner(workspaces, focus)),
     ]
     return _exec_or_konsole(inner, _tutor_workdir(list(workspaces) + list(focus)),
                             inline=inline)
@@ -1600,10 +1674,8 @@ def _launch_begleiter(data: dict, *, inline: bool) -> int:
     it can work in whichever course the hour asks for."""
     workspaces = data["workspaces"]
     inner = [
-        *_backend_cmd(),
-        *_backend_model_args(),
-        "--append-system-prompt", _assemble_begleiter_prompt(),
-        opening_message_begleiter(workspaces),
+        *_backend_launch(_assemble_begleiter_prompt(), _tutor_workdir(workspaces)),
+        *_opening_args(opening_message_begleiter(workspaces)),
     ]
     return _exec_or_konsole(inner, _tutor_workdir(workspaces), inline=inline)
 
@@ -1763,7 +1835,7 @@ def _model_selection_menu(
             except Exception:
                 terminal_height, terminal_width = 24, 80
 
-            header_title = "╭─ studyclaude — Modell wählen ─╮"
+            header_title = f"╭─ {_command_name()} — Modell wählen ─╮"
             _safe_addstr(stdscr, 0, 0, header_title, color_palette["title"])
 
             header_subtitle = "  Wähle das LLM-Modell für die Lern-Sessions:"
@@ -1923,7 +1995,7 @@ def _menu_loop(stdscr, data: dict):
     while True:
         remaining = 10.0 - (time.monotonic() - start)
         stdscr.erase()
-        _safe_addstr(stdscr, 0, 0, "╭─ studyclaude ", C["title"])
+        _safe_addstr(stdscr, 0, 0, f"╭─ {_command_name()} ", C["title"])
         _safe_addstr(stdscr, 0, 15, "— Kurse für den Gärtner markieren ─╮" if multi
                      else "— Kurs wählen ─╮", C["title"])
         top = 2
@@ -2072,28 +2144,20 @@ def _menu_loop(stdscr, data: dict):
 def run_menu() -> int:
     # From the desktop icon there is no TTY — re-open inside konsole running the menu.
     if _needs_konsole_reexec():
-        cmd = ["konsole", "-p", "tabtitle=studyclaude", "-e",
-               sys.executable, str(Path(__file__).resolve()), "--menu"]
+        cmd = ["konsole", "-p", f"tabtitle={_command_name()}", "-e",
+               sys.executable, str(Path(__file__).resolve()), "--engine", ENGINE, "--menu"]
         try:
             subprocess.Popen(cmd, start_new_session=True, env=_launch_env())
             return 0
         except FileNotFoundError:
-            print("No TTY and no konsole found — run `studyclaude --menu` from a terminal.")
+            print(f"No TTY and no konsole found — run `{_command_name()} --menu` from a terminal.")
             return 1
 
     data = _ensure_default(_load_registry())
-    if "_courses_readonly" in data:
-        print("Kursliste nicht lesbar: das Menü ist nur lesend, Kursänderungen werden nicht gespeichert.")
-    try:
-        _save_registry(data)
-    except CourseListError:
-        pass
+    _save_registry(data)
     import curses
     action, ws = curses.wrapper(_menu_loop, data)
-    try:
-        _save_registry(data)  # persist any default change made with 'd'
-    except CourseListError as e:
-        print(f"Nicht gespeichert: {e}")
+    _save_registry(data)  # persist any default change made with 'd'
 
     if action == "quit":
         return 0
@@ -2128,35 +2192,42 @@ def _do_install_remove(remove: bool, workspace: "str | None" = None,
             print("Error: cli_tools_kit / _shared.tool_installer not found.")
             return 1
 
+    def _metadata(entry: dict, **over) -> "ToolMetadata":
+        fields = dict(
+            name=entry["name"], desktop_file=entry["desktop_file"], icon=entry["icon"],
+            desc=entry["desc"], tags=entry["tags"], alias=entry["alias"],
+            terminal=entry["terminal"], args=entry["args"])
+        fields.update(over)
+        return ToolMetadata(**fields)
+
     if workspace:
-        # Per-workspace icon: one thin launcher that calls `studyclaude <ws>`.
+        # Per-workspace icon: one thin launcher that calls `<command> <ws>` for this engine.
         ws = _abs_path(workspace)
         label = name or Path(ws).name
         slug = _slug(label)
-        meta = ToolMetadata(
-            name=f"studyclaude: {label}",
-            desktop_file=f"studyclaude_{slug}.desktop",
-            icon=PARENT_METADATA["icon"],
+        cmd = _command_name()
+        metas = [_metadata(
+            ENTRIES[ENGINE],
+            name=f"{cmd}: {label}",
+            desktop_file=f"{cmd}_{slug}.desktop",
             desc=f"Lern-Loop im Workspace {ws}",
-            tags=PARENT_METADATA["tags"],
-            alias=alias or f"studyclaude_{slug}",
-            terminal=PARENT_METADATA["terminal"],
-            args=[ws],                       # appended to the .desktop Exec / alias
-        )
+            alias=alias or f"{cmd}_{slug}",
+            args=[ws, "--engine", ENGINE],   # appended to the .desktop Exec / alias
+        )]
     else:
-        meta = ToolMetadata(
-            name=PARENT_METADATA["name"], desktop_file=PARENT_METADATA["desktop_file"],
-            icon=PARENT_METADATA["icon"], desc=PARENT_METADATA["desc"],
-            tags=PARENT_METADATA["tags"], alias=PARENT_METADATA["alias"],
-            terminal=PARENT_METADATA["terminal"], args=PARENT_METADATA["args"])
+        # Both commands, like bootclaude's variants.
+        metas = [_metadata(entry) for entry in ENTRIES.values()]
 
-    installer = ToolInstaller(script_path=__file__, metadata=meta)
-    installer.remove() if remove else installer.install()
+    for meta in metas:
+        installer = ToolInstaller(script_path=__file__, metadata=meta)
+        installer.remove() if remove else installer.install()
     return 0
 
 
-def _main() -> int:
-    parser = argparse.ArgumentParser(prog="studyclaude", description=str(PARENT_METADATA["desc"]))
+def main() -> int:
+    parser = argparse.ArgumentParser(prog="study", description=str(ENTRIES["claude"]["desc"]).replace("Claude", "Claude/opencode"))
+    parser.add_argument("--engine", choices=ENGINES, default=None,
+                        help="agent to run the session in (default: claude; STUDY_ENGINE overrides the default)")
     parser.add_argument("workspace", nargs="?", default=None,
                         help="workspace folder (default: the registered default course)")
     parser.add_argument("--advertise", action="store_true", help="emit installer metadata JSON")
@@ -2201,9 +2272,11 @@ def _main() -> int:
     parser.add_argument("--dry-run", dest="dry_run", action="store_true",
                         help="print the launch argv and exit (no launch)")
     args = parser.parse_args()
+    if args.engine:
+        _set_engine(args.engine)
 
     if args.advertise:                      # (also handled pre-import above)
-        print(json.dumps([PARENT_METADATA]))
+        print(json.dumps(list(ENTRIES.values())))
         return 0
     if args.install or args.remove:
         if args.workspace and not args.remove:
@@ -2225,7 +2298,7 @@ def _main() -> int:
     if args.begleiter:
         data = _ensure_default(_load_registry())
         if not data["workspaces"]:
-            print("Noch kein Kurs registriert — run `studyclaude` for the menu.")
+            print(f"Noch kein Kurs registriert — run `{_command_name()}` for the menu.")
             return 1
         if args.print_prompt:
             print(_assemble_begleiter_prompt())
@@ -2234,7 +2307,7 @@ def _main() -> int:
     if args.quickie:
         data = _ensure_default(_load_registry())
         if not data["workspaces"]:
-            print("Noch kein Kurs registriert — run `studyclaude` for the menu.")
+            print(f"Noch kein Kurs registriert — run `{_command_name()}` for the menu.")
             return 1
         if args.print_prompt:               # inspection only: no launch, no streak
             print(_assemble_quickie_prompt(data["workspaces"]))
@@ -2244,7 +2317,7 @@ def _main() -> int:
         data = _ensure_default(_load_registry())
         focus = [_abs_path(p) for p in args.gaertner]   # not registered: that is a change to plan
         if not data["workspaces"] and not focus:
-            print("Noch kein Kurs registriert — run `studyclaude` for the menu.")
+            print(f"Noch kein Kurs registriert — run `{_command_name()}` for the menu.")
             return 1
         if args.print_prompt:
             print(_assemble_gaertner_prompt())
@@ -2282,7 +2355,7 @@ def _main() -> int:
 
     ws = _resolve_workspace(args.workspace)
     if ws is None:
-        print("No workspace given and none registered yet — run `studyclaude` for the menu "
+        print(f"No workspace given and none registered yet — run `{_command_name()}` for the menu "
               "and pick \u201eneuen Kurs anlegen\u201c.")
         return 1
 
@@ -2295,14 +2368,6 @@ def _main() -> int:
         print("konsole --workdir", ws, "-e \\\n  " + " ".join(shown))
         return 0
     return launch(ws)
-
-
-def main() -> int:
-    try:
-        return _main()
-    except CourseListError as e:
-        print(f"Fehler: {e}", file=sys.stderr)
-        return 1
 
 
 if __name__ == "__main__":

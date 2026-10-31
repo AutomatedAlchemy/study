@@ -1,6 +1,5 @@
 # Your course list — tool-local mutable state, never committed.
 data/registry.json
-data/courses-cache.json
 data/wochenplan.md
 data/*.sync-conflict-*
 

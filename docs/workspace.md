@@ -86,7 +86,7 @@ browser, calculations on a separate `.xopp` sheet) or a **Tutor Board** (a web
 whiteboard with one tab per exercise; it needs an account on the author's
 service, see the README). The active medium is a single launcher-level switch —
 toggle it with `m` in the menu, `studyclaude --set-medium xournalpp|board`, or
-`STUDYCLAUDE_MEDIUM` — not a per-course fact.
+`STUDY_MEDIUM` — not a per-course fact.
 
 The mechanics of each medium live in `templates/media/<name>.md` and ride into
 every session via the system prompt; course workspaces carry no medium

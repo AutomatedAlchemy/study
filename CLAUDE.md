@@ -1,4 +1,24 @@
-# studyclaude — maintainer notes
+# study (studyclaude + openstudy) — maintainer notes
+
+Merged on 2026-10-31 from two repos: studyclaude (this one, with the history) and openstudy
+(its opencode fork, created the same day by `git archive` at studyclaude 74b699b, then
+archived). One `main.py`; `ENGINE` (`claude` | `opencode`, set by `--engine` or
+`STUDY_ENGINE`) changes only `_backend_launch`, `_opening_args`, the subagent sentence in
+`_prompt_common`, `_launch_env`, the names (`_command_name`) and which `engines.<engine>`
+settings apply. The installer advertises two entries (`studyclaude`, `openstudy`), each
+with `args` `--engine X`; `--install` / `--remove` handle both, because the kit no longer
+passes an entry's args to the lifecycle commands (cli-tools-kit 602af85).
+
+Facts tested 2026-10-31 on opencode v2.1.2: `instructions` in `OPENCODE_CONFIG_CONTENT`
+loads both files (needs `--standalone`); CLAUDE.md in cwd is NOT loaded; the TUI has
+`--prompt`. Not tested: the interactive TUI with `--prompt` and `-m …#effort` together.
+
+Env: `STUDY_*` first, then `STUDYCLAUDE_*`, then `OPENSTUDY_*` (`_env`), for one release.
+The sections below were written for studyclaude and still say Claude Code, `--append-system-prompt`
+and `claude` where the opencode engine differs; read them for design, not for launch mechanics.
+The old `tier.py` (Claude subscription tier lookup) is unused since 2026-09-16.
+
+---
 
 User-facing docs are in [`README.md`](README.md). This file holds the design
 decisions and invariants an agent working on the code needs.
@@ -57,7 +77,7 @@ its own reasons. Two consequences the code must keep honouring:
   garbage dates — every path returns `[]` and the menu just has no banner. This
   is a launcher; it must not refuse to open a course because a notes file moved.
 
-The path itself is configuration (`STUDYCLAUDE_EXAMS`, or `exams_file` in the
+The path itself is configuration (`STUDY_EXAMS`, or `exams_file` in the
 registry), never a constant — `test_no_personal_paths_and_no_builtin_default` greps
 `main.py` for personal path fragments and this feature is exactly the kind that
 would tempt one back in.
@@ -261,7 +281,7 @@ and sources.
 The working medium (Xournal++ vs Tutor Board) is deliberately NOT part of the
 SSoT in the course docs — it is cross-course infrastructure. Two launcher-owned
 pieces: the *choice* (registry key `medium`, menu key `m`, `--set-medium`,
-`STUDYCLAUDE_MEDIUM` override, default `xournalpp`) and the *mechanics*
+`STUDY_MEDIUM` override, default `xournalpp`) and the *mechanics*
 (`templates/media/<name>.md`, appended to the system prompt by
 `_assemble_prompt` — only the active medium's file, fail-into-silence when
 missing). `_prompt_common` emits three tagged parts — `<orientierung>`,
@@ -383,30 +403,33 @@ because the Gärtner prompt relies on "trägt nur aus, löscht nichts".
 
 ## Tool-local state
 
-The registry lives at `data/registry.json`, anchored to `SCRIPT_DIR`, beside the tool.
-Since 2026-10-31 the **course list** (`workspaces`) is the exception: it is shared with
-openstudy in `~/.config/study-courses.json` (`STUDY_COURSES` overrides), because the
-two tools must show the same courses (user). Everything else (model, effort, default,
-medium, quickies) stays in `data/registry.json`.
+The registry lives at `data/registry.json`, anchored to `SCRIPT_DIR` — **not**
+`~/.config`. Rationale: this is run from a checkout that is shared or replicated
+across several machines, and per-host config silently diverges (a course list once
+showed three courses on one host and one on another). Keeping it beside the tool
+makes the course list travel with the checkout.
 
-The cost: the shared file is per host, so the course list no longer travels with a synced
-checkout. The old rule existed because per-host config once showed three courses on one
-host and one on another. Point `STUDY_COURSES` at a synced path to get that back.
+(2026-10-31, user: for a few hours the course list lived in `~/.config/study-courses.json`
+so that studyclaude and openstudy, then two repos, could share it. With one tool that
+reason is gone and the list is back in the registry. Step 3 of
+`../shared-course-list-proposal.md` moves it again, beside the courses.)
 
-Safety rules of the shared file (a review caught the first version losing the list):
-an unreadable file is never overwritten (the tool works from its own list for that run),
-and writes are atomic (`os.replace`). A registry that still holds `workspaces` migrates
-them into the shared file on first load.
+Shared keys: `workspaces`, `default`, `exams_file`, `quickies`, `meta`. Per engine, under
+`engines.<engine>`: `model`, `effort`, `medium`. In memory the active engine's three sit
+at the top level of the dict `_load_registry` returns (the menu reads `data["model"]`),
+and `_save_registry` folds them back. `"migrated": true` marks that `_migrate_legacy` ran:
+it reads a registry with top-level `model`/`effort`/`medium` (the old studyclaude layout),
+the old openstudy registry and `~/.config/study-courses.json` once, and a course removed
+afterwards must not come back — never remove that marker check.
 
 Consequences to preserve:
-- The path takes a `STUDYCLAUDE_REGISTRY` override so tests can redirect it to
-  `tmp_path`. Every registry test relies on this. With it set, the courses stay in that
-  registry and the shared file is not touched.
+- The path takes a `STUDY_REGISTRY` override so tests can redirect it to `tmp_path`.
+  Every registry test relies on this. A redirected registry never reads the user's real
+  legacy files (`_legacy_sources` returns nothing).
 - It is gitignored. It's mutable runtime state; tracking it would leave
   `git status` permanently dirty and invite merge conflicts.
-- Because the file is shared, `default` is shared too. Two machines writing it in
-  the same sync window can produce a `*.sync-conflict-*` copy — harmless, delete
-  the loser.
+- Two machines writing it in the same sync window can produce a `*.sync-conflict-*`
+  copy — harmless, delete the loser.
 
 ## One engine, many icons
 
