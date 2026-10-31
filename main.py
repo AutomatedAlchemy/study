@@ -752,24 +752,31 @@ def _load_registry() -> dict:
             _write_courses(shared, courses)
         _atomic_write(_registry_path(), dict(data, workspaces=[]))
     data["workspaces"] = courses
+    data["_courses_loaded"] = list(courses)
     _refresh_cache(courses)
     return data
 
 
 def _save_registry(data: dict) -> None:
+    """Save the settings; write the course list only when it changed since the load.
+
+    A session that loaded the list read-only never writes it, even when the file
+    is readable again by now: the cached list it shows may be stale.
+    """
     data = dict(data)
     readonly = data.pop("_courses_readonly", None)
+    loaded = data.pop("_courses_loaded", None)
     shared = _courses_path()
     if shared is not None:
-        if _read_courses(shared) is None:
-            if readonly is None or list(data["workspaces"]) != readonly:
+        courses = list(data["workspaces"])
+        baseline = readonly if readonly is not None else loaded
+        if courses != baseline:
+            if readonly is not None or _read_courses(shared) is None:
                 raise CourseListError(
                     f"Kursliste nicht lesbar ({shared}); Kurse bleiben unverändert.")
-            data = dict(data, workspaces=[])   # settings only
-        else:
-            _write_courses(shared, list(data["workspaces"]))
-            _refresh_cache(list(data["workspaces"]))
-            data = dict(data, workspaces=[])
+            _write_courses(shared, courses)
+            _refresh_cache(courses)
+        data = dict(data, workspaces=[])
     _atomic_write(_registry_path(), data)
 
 

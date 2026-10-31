@@ -817,3 +817,40 @@ def test_a_cli_run_reports_an_unreadable_course_list(tmp_path, monkeypatch, caps
         dict(main._load_registry(), workspaces=["/a", "/c"])))
     assert main.main() == 1
     assert "Kursliste nicht lesbar" in capsys.readouterr().err
+
+
+def test_a_read_only_session_never_writes_a_stale_list(tmp_path, monkeypatch):
+    import json
+    main, shared, own = _shared_env(tmp_path, monkeypatch)
+    main._save_registry(dict(main._load_registry(), workspaces=["/a"]))
+    shared.write_text("{", encoding="utf-8")
+    data = main._load_registry()                       # read-only, shows ["/a"]
+    assert data["workspaces"] == ["/a"]
+    shared.write_text(json.dumps({"workspaces": ["/a", "/b"]}), encoding="utf-8")  # repaired
+    data["model"] = "opus"
+    main._save_registry(data)
+    assert json.loads(shared.read_text())["workspaces"] == ["/a", "/b"]            # /b kept
+    assert json.loads(own.read_text())["model"] == "opus"
+
+
+def test_a_settings_save_does_not_need_a_readable_list(tmp_path, monkeypatch):
+    import json
+    main, shared, own = _shared_env(tmp_path, monkeypatch)
+    main._save_registry(dict(main._load_registry(), workspaces=["/a"]))
+    data = main._load_registry()                       # loaded fine
+    shared.write_text("{", encoding="utf-8")           # breaks before the save
+    data["effort"] = "high"
+    main._save_registry(data)                          # unchanged courses: no error
+    assert json.loads(own.read_text())["effort"] == "high"
+    assert shared.read_text(encoding="utf-8") == "{"
+
+
+def test_a_settings_save_leaves_a_sibling_addition_alone(tmp_path, monkeypatch):
+    import json
+    main, shared, own = _shared_env(tmp_path, monkeypatch)
+    main._save_registry(dict(main._load_registry(), workspaces=["/a"]))
+    data = main._load_registry()
+    shared.write_text(json.dumps({"workspaces": ["/a", "/b"]}), encoding="utf-8")  # sibling adds
+    data["model"] = "opus"
+    main._save_registry(data)                          # courses unchanged by this tool
+    assert json.loads(shared.read_text())["workspaces"] == ["/a", "/b"]
