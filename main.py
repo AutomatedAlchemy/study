@@ -669,6 +669,34 @@ def _registry_path() -> Path:
         os.environ.get("STUDYCLAUDE_REGISTRY", str(SCRIPT_DIR / "data" / "registry.json"))))
 
 
+def _courses_path() -> "Path | None":
+    """The course list both openstudy and studyclaude read and write.
+
+    ``~/.config/study-courses.json``, or ``STUDY_COURSES``. Only the list of
+    courses is shared; model, effort, default, medium and the rest stay in each
+    tool's own registry. With ``STUDYCLAUDE_REGISTRY`` set the courses stay in that registry
+    (tests and one-off setups), so they never touch the shared file.
+    """
+    if os.environ.get("STUDYCLAUDE_REGISTRY"):
+        return None
+    return Path(os.path.expanduser(
+        os.environ.get("STUDY_COURSES", "~/.config/study-courses.json")))
+
+
+def _read_courses(p: Path) -> "list | None":
+    try:
+        items = json.loads(p.read_text(encoding="utf-8")).get("workspaces")
+    except (OSError, ValueError, AttributeError):
+        return None
+    return [w for w in items if isinstance(w, str)] if isinstance(items, list) else None
+
+
+def _write_courses(p: Path, courses: list) -> None:
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(json.dumps({"workspaces": courses}, indent=2, ensure_ascii=False),
+                 encoding="utf-8")
+
+
 def _load_registry() -> dict:
     try:
         data = json.loads(_registry_path().read_text(encoding="utf-8"))
@@ -676,13 +704,27 @@ def _load_registry() -> dict:
         data = {}
     data.setdefault("workspaces", [])
     data.setdefault("default", None)
+    shared = _courses_path()
+    if shared is not None:
+        courses = _read_courses(shared) or []
+        # Courses an older version kept in this registry move to the shared list.
+        extra = [w for w in data["workspaces"] if w not in courses]
+        if extra:
+            courses += extra
+            _write_courses(shared, courses)
+        data["workspaces"] = courses
     return data
 
 
 def _save_registry(data: dict) -> None:
     p = _registry_path()
     p.parent.mkdir(parents=True, exist_ok=True)
-    p.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
+    shared = _courses_path()
+    own = data
+    if shared is not None:
+        _write_courses(shared, list(data["workspaces"]))
+        own = dict(data, workspaces=[])
+    p.write_text(json.dumps(own, indent=2, ensure_ascii=False), encoding="utf-8")
 
 
 def _ensure_default(data: dict) -> dict:

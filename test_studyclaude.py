@@ -744,3 +744,26 @@ def test_menu_countdown_survives_a_window_resize(monkeypatch, tmp_path):
     data = {"workspaces": [str(tmp_path)], "default": m._BEGLEITER_SENTINEL}
     screen = MockCursesScreen([curses.KEY_RESIZE, ord("q")])
     assert m._menu_loop(screen, data) == ("begleiter", None)
+
+
+# --- the course list is shared with the sibling tool ---------------------------
+
+def test_courses_are_shared_through_one_file(tmp_path, monkeypatch):
+    import json, main
+    monkeypatch.delenv("STUDYCLAUDE_REGISTRY", raising=False)
+    monkeypatch.setenv("STUDY_COURSES", str(tmp_path / "courses.json"))
+    monkeypatch.setattr(main, "SCRIPT_DIR", tmp_path / "tool")
+    (tmp_path / "tool" / "data").mkdir(parents=True)
+    legacy = tmp_path / "tool" / "data" / "registry.json"
+    legacy.write_text(json.dumps({"workspaces": ["/a"], "model": "x"}), encoding="utf-8")
+    assert main._load_registry()["workspaces"] == ["/a"]          # migrated
+    (tmp_path / "courses.json").write_text(
+        json.dumps({"workspaces": ["/a", "/b"]}), encoding="utf-8")  # the sibling added one
+    assert main._load_registry()["workspaces"] == ["/a", "/b"]
+    data = main._load_registry()
+    data["workspaces"].remove("/a")
+    main._save_registry(data)
+    assert json.loads((tmp_path / "courses.json").read_text())["workspaces"] == ["/b"]
+    own = json.loads(legacy.read_text())
+    assert own["workspaces"] == [] and own["model"] == "x"        # settings stay local
+    assert main._load_registry()["workspaces"] == ["/b"]          # no resurrection
