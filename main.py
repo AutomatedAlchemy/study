@@ -931,8 +931,14 @@ def _load_registry() -> dict:
     data.setdefault("workspaces", [])
     data.setdefault("default", None)
     mine = (data.get("engines") or {}).get(ENGINE) or {}
+    if data.get("migrated"):
+        for key in _ENGINE_KEYS:
+            data.pop(key, None)
+    elif ENGINE != "claude":
+        # Migration postponed (a source was unreadable): the top-level keys are the old
+        # claude settings. Keep them aside so the next save writes them back untouched.
+        data["_legacy_top"] = {k: data.pop(k) for k in _ENGINE_KEYS if k in data}
     for key in _ENGINE_KEYS:
-        data.pop(key, None)
         if key in mine:
             data[key] = mine[key]
     return data
@@ -940,12 +946,18 @@ def _load_registry() -> dict:
 
 def _save_registry(data: dict) -> None:
     out = dict(data)
-    engines = {name: dict(values) for name, values in (out.get("engines") or {}).items()}
-    mine = engines.setdefault(ENGINE, {})
-    for key in _ENGINE_KEYS:
-        if key in out:
-            mine[key] = out.pop(key)
-    out["engines"] = engines
+    legacy = out.pop("_legacy_top", None)
+    # An unmigrated registry keeps its top-level keys for claude: they are still the
+    # old claude settings, and `_migrate_legacy` moves them once it can run.
+    if out.get("migrated") or ENGINE != "claude":
+        engines = {name: dict(values) for name, values in (out.get("engines") or {}).items()}
+        mine = engines.setdefault(ENGINE, {})
+        for key in _ENGINE_KEYS:
+            if key in out:
+                mine[key] = out.pop(key)
+        out["engines"] = engines
+    if legacy:
+        out.update(legacy)
     _atomic_write(_registry_path(), out)
 
 

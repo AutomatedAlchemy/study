@@ -1054,3 +1054,29 @@ def test_a_warning_is_printed_once_per_run(tmp_path, capsys):
     for _ in range(3):
         m._load_registry()
     assert capsys.readouterr().err.count("nicht lesbar") == 1
+
+
+@pytest.mark.parametrize("engine", ["claude", "opencode"])
+def test_a_postponed_migration_loses_no_settings(tmp_path, monkeypatch, engine):
+    monkeypatch.setattr(m, "ENGINE", engine)
+    broken = tmp_path / "broken.json"; broken.write_text("{", encoding="utf-8")
+    _write(m._registry_path(), {"workspaces": ["/a"], "model": "sonnet", "effort": "high",
+                                "medium": "board"})
+    monkeypatch.setattr(m, "_legacy_sources", lambda: {"openstudy": broken})
+    data = m._load_registry()                       # postponed
+    if engine == "claude":
+        assert (data["model"], data["medium"]) == ("sonnet", "board")
+    else:
+        assert "model" not in data                  # not claude's setting to show
+        data["model"] = "fable"
+    m._save_registry(data)                          # what run_menu does right after loading
+    on_disk = json.loads(m._registry_path().read_text())
+    assert (on_disk["model"], on_disk["effort"], on_disk["medium"]) == ("sonnet", "high", "board")
+    assert "migrated" not in on_disk
+    broken.write_text(json.dumps({"workspaces": []}), encoding="utf-8")     # the sync finished
+    monkeypatch.setattr(m, "ENGINE", "claude")
+    data = m._load_registry()
+    assert (data["model"], data["effort"], data["medium"]) == ("sonnet", "high", "board")
+    if engine == "opencode":
+        monkeypatch.setattr(m, "ENGINE", "opencode")
+        assert m._load_registry()["model"] == "fable"
