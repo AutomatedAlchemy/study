@@ -807,3 +807,13 @@ def test_an_unreadable_shared_file_blocks_course_edits(tmp_path, monkeypatch):
         main._save_registry(data)
     assert shared.read_text(encoding="utf-8") == '{"workspaces": ["/a", "/b"'
     assert json.loads(own.read_text())["workspaces"] == []              # no stale copy made
+
+
+def test_a_cli_run_reports_an_unreadable_course_list(tmp_path, monkeypatch, capsys):
+    main, shared, own = _shared_env(tmp_path, monkeypatch)
+    main._save_registry(dict(main._load_registry(), workspaces=["/a"]))
+    shared.write_text("{", encoding="utf-8")
+    monkeypatch.setattr(main, "_main", lambda: main._save_registry(
+        dict(main._load_registry(), workspaces=["/a", "/c"])))
+    assert main.main() == 1
+    assert "Kursliste nicht lesbar" in capsys.readouterr().err

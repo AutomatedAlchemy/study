@@ -716,6 +716,17 @@ def _cache_path() -> Path:
     return _registry_path().with_name("courses-cache.json")
 
 
+def _refresh_cache(courses: list) -> None:
+    """Keep the last good copy; only write when it changed, and never fail a read."""
+    p = _cache_path()
+    try:
+        if p.exists() and _read_courses(p) == courses:
+            return
+        _write_courses(p, courses)
+    except OSError:
+        pass
+
+
 def _load_registry() -> dict:
     try:
         data = json.loads(_registry_path().read_text(encoding="utf-8"))
@@ -741,7 +752,7 @@ def _load_registry() -> dict:
             _write_courses(shared, courses)
         _atomic_write(_registry_path(), dict(data, workspaces=[]))
     data["workspaces"] = courses
-    _write_courses(_cache_path(), courses)
+    _refresh_cache(courses)
     return data
 
 
@@ -757,7 +768,7 @@ def _save_registry(data: dict) -> None:
             data = dict(data, workspaces=[])   # settings only
         else:
             _write_courses(shared, list(data["workspaces"]))
-            _write_courses(_cache_path(), list(data["workspaces"]))
+            _refresh_cache(list(data["workspaces"]))
             data = dict(data, workspaces=[])
     _atomic_write(_registry_path(), data)
 
@@ -2136,7 +2147,7 @@ def _do_install_remove(remove: bool, workspace: "str | None" = None,
     return 0
 
 
-def main() -> int:
+def _main() -> int:
     parser = argparse.ArgumentParser(prog="studyclaude", description=str(PARENT_METADATA["desc"]))
     parser.add_argument("workspace", nargs="?", default=None,
                         help="workspace folder (default: the registered default course)")
@@ -2276,6 +2287,14 @@ def main() -> int:
         print("konsole --workdir", ws, "-e \\\n  " + " ".join(shown))
         return 0
     return launch(ws)
+
+
+def main() -> int:
+    try:
+        return _main()
+    except CourseListError as e:
+        print(f"Fehler: {e}", file=sys.stderr)
+        return 1
 
 
 if __name__ == "__main__":
