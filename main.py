@@ -925,7 +925,8 @@ def _migrate_legacy(data: dict, sources: "dict | None" = None) -> dict:
 
 def _load_registry() -> dict:
     if _set_aside_unreadable(_registry_path()):
-        data = {}        # no migration: it would write over the unreadable file
+        # No migration, and no save while it stays unreadable: both would write over it.
+        data = {"_registry_unreadable": True}
     else:
         data = _migrate_legacy(_read_json(_registry_path()))
     data.setdefault("workspaces", [])
@@ -945,6 +946,10 @@ def _load_registry() -> dict:
 
 
 def _save_registry(data: dict) -> None:
+    if data.get("_registry_unreadable"):
+        _warn_once(f"Warnung: {_registry_path()} ist nicht lesbar und bleibt unverändert; "
+                   "Einstellungen werden nicht gespeichert.")
+        return
     out = dict(data)
     legacy = out.pop("_legacy_top", None)
     # An unmigrated registry keeps its top-level keys for claude: they are still the

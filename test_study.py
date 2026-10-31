@@ -976,6 +976,7 @@ def test_an_unreadable_registry_is_kept_and_not_migrated(tmp_path, capsys):
     reg.write_text('{"workspaces": ["/a", "/b"', encoding="utf-8")        # half-synced
     data = m._load_registry()
     assert data["workspaces"] == []
+    m._save_registry(data)                                                  # what run_menu does
     assert reg.read_text(encoding="utf-8") == '{"workspaces": ["/a", "/b"'   # not replaced
     backup = reg.with_name(reg.name + ".unreadable")
     assert backup.read_text(encoding="utf-8") == '{"workspaces": ["/a", "/b"'
@@ -1080,3 +1081,15 @@ def test_a_postponed_migration_loses_no_settings(tmp_path, monkeypatch, engine):
     if engine == "opencode":
         monkeypatch.setattr(m, "ENGINE", "opencode")
         assert m._load_registry()["model"] == "fable"
+
+
+def test_the_registry_is_saved_again_once_it_is_readable(tmp_path):
+    reg = m._registry_path()
+    reg.write_text("{", encoding="utf-8")
+    m._save_registry(m._load_registry())
+    assert reg.read_text(encoding="utf-8") == "{"
+    reg.write_text(json.dumps({"workspaces": ["/a"]}), encoding="utf-8")    # repaired
+    data = m._load_registry()
+    data["default"] = "/a"
+    m._save_registry(data)
+    assert json.loads(reg.read_text())["default"] == "/a"
