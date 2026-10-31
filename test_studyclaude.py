@@ -769,15 +769,41 @@ def test_courses_are_shared_through_one_file(tmp_path, monkeypatch):
     assert main._load_registry()["workspaces"] == ["/b"]          # no resurrection
 
 
-def test_an_unreadable_shared_file_is_never_overwritten(tmp_path, monkeypatch):
-    import json, main
+def _shared_env(tmp_path, monkeypatch):
+    import main
     monkeypatch.delenv("STUDYCLAUDE_REGISTRY", raising=False)
     monkeypatch.setenv("STUDY_COURSES", str(tmp_path / "courses.json"))
     monkeypatch.setattr(main, "SCRIPT_DIR", tmp_path / "tool")
-    shared = tmp_path / "courses.json"
-    shared.write_text('{"workspaces": ["/a", "/b"', encoding="utf-8")   # half-written
+    (tmp_path / "tool" / "data").mkdir(parents=True)
+    return main, tmp_path / "courses.json", tmp_path / "tool" / "data" / "registry.json"
+
+
+def test_legacy_courses_migrate_once_and_never_come_back(tmp_path, monkeypatch):
+    import json
+    main, shared, own = _shared_env(tmp_path, monkeypatch)
+    own.write_text(json.dumps({"workspaces": ["/a", "/b"], "model": "x"}), encoding="utf-8")
+    assert main._load_registry()["workspaces"] == ["/a", "/b"]
+    assert json.loads(own.read_text())["workspaces"] == []          # cleared at once
+    data = main._load_registry()
+    data["workspaces"].remove("/a")
+    main._save_registry(data)
+    assert main._load_registry()["workspaces"] == ["/b"]
+
+
+def test_an_unreadable_shared_file_blocks_course_edits(tmp_path, monkeypatch):
+    import json, pytest
+    main, shared, own = _shared_env(tmp_path, monkeypatch)
+    main._save_registry(dict(main._load_registry(), workspaces=["/a", "/b"]))
+    shared.write_text('{"workspaces": ["/a", "/b"', encoding="utf-8")    # half-written
+    data = main._load_registry()
+    assert data["workspaces"] == ["/a", "/b"]                           # read-only from the cache
+    data["model"] = "opus"
+    main._save_registry(data)                                           # settings still save
+    assert json.loads(own.read_text())["model"] == "opus"
+    assert json.loads(own.read_text())["workspaces"] == []
     data = main._load_registry()
     data["workspaces"].append("/c")
-    main._save_registry(data)
+    with pytest.raises(main.CourseListError):
+        main._save_registry(data)
     assert shared.read_text(encoding="utf-8") == '{"workspaces": ["/a", "/b"'
-    assert "/c" in json.loads((tmp_path / "tool" / "data" / "registry.json").read_text())["workspaces"]
+    assert json.loads(own.read_text())["workspaces"] == []              # no stale copy made

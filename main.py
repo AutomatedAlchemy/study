@@ -683,6 +683,10 @@ def _courses_path() -> "Path | None":
         os.environ.get("STUDY_COURSES", "~/.config/study-courses.json")))
 
 
+class CourseListError(OSError):
+    """The shared course list cannot be read, so the courses cannot be changed."""
+
+
 def _read_courses(p: Path) -> "list | None":
     """The shared list; ``[]`` when the file is missing, ``None`` when it exists
     but cannot be read (a sibling mid-write, a corrupt file). That one is never
@@ -696,12 +700,20 @@ def _read_courses(p: Path) -> "list | None":
     return [w for w in items if isinstance(w, str)] if isinstance(items, list) else None
 
 
-def _write_courses(p: Path, courses: list) -> None:
+def _atomic_write(p: Path, payload: dict) -> None:
     p.parent.mkdir(parents=True, exist_ok=True)
     tmp = p.with_name(p.name + f".{os.getpid()}.tmp")
-    tmp.write_text(json.dumps({"workspaces": courses}, indent=2, ensure_ascii=False),
-                   encoding="utf-8")
+    tmp.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
     os.replace(tmp, p)
+
+
+def _write_courses(p: Path, courses: list) -> None:
+    _atomic_write(p, {"workspaces": courses})
+
+
+def _cache_path() -> Path:
+    """The last good copy of the shared list, shown read-only while it is unreadable."""
+    return _registry_path().with_name("courses-cache.json")
 
 
 def _load_registry() -> dict:
@@ -712,30 +724,42 @@ def _load_registry() -> dict:
     data.setdefault("workspaces", [])
     data.setdefault("default", None)
     shared = _courses_path()
-    if shared is not None:
-        courses = _read_courses(shared)
-        if courses is None:
-            return data             # unreadable: work from this registry's own list
-        # Courses an older version kept in this registry move to the shared list.
-        extra = [w for w in data["workspaces"] if w not in courses]
-        if extra:
-            courses = courses + extra
+    if shared is None:
+        return data
+    courses = _read_courses(shared)
+    if courses is None:
+        # Unreadable: show the last good copy, change nothing (see _save_registry).
+        cached = _read_courses(_cache_path()) if _cache_path().exists() else None
+        data["workspaces"] = cached if cached is not None else data["workspaces"]
+        data["_courses_readonly"] = list(data["workspaces"])
+        return data
+    legacy = [w for w in data["workspaces"] if w not in courses]
+    if data["workspaces"]:
+        # Courses an older version kept in this registry: moved once, never merged back.
+        if legacy:
+            courses = courses + legacy
             _write_courses(shared, courses)
-        data["workspaces"] = courses
+        _atomic_write(_registry_path(), dict(data, workspaces=[]))
+    data["workspaces"] = courses
+    _write_courses(_cache_path(), courses)
     return data
 
 
 def _save_registry(data: dict) -> None:
-    p = _registry_path()
-    p.parent.mkdir(parents=True, exist_ok=True)
+    data = dict(data)
+    readonly = data.pop("_courses_readonly", None)
     shared = _courses_path()
-    own = data
-    if shared is not None and _read_courses(shared) is not None:
-        _write_courses(shared, list(data["workspaces"]))
-        own = dict(data, workspaces=[])
-    tmp = p.with_name(p.name + f".{os.getpid()}.tmp")
-    tmp.write_text(json.dumps(own, indent=2, ensure_ascii=False), encoding="utf-8")
-    os.replace(tmp, p)
+    if shared is not None:
+        if _read_courses(shared) is None:
+            if readonly is None or list(data["workspaces"]) != readonly:
+                raise CourseListError(
+                    f"Kursliste nicht lesbar ({shared}); Kurse bleiben unverändert.")
+            data = dict(data, workspaces=[])   # settings only
+        else:
+            _write_courses(shared, list(data["workspaces"]))
+            _write_courses(_cache_path(), list(data["workspaces"]))
+            data = dict(data, workspaces=[])
+    _atomic_write(_registry_path(), data)
 
 
 def _ensure_default(data: dict) -> dict:
@@ -2039,10 +2063,18 @@ def run_menu() -> int:
             return 1
 
     data = _ensure_default(_load_registry())
-    _save_registry(data)
+    if "_courses_readonly" in data:
+        print("Kursliste nicht lesbar: das Menü ist nur lesend, Kursänderungen werden nicht gespeichert.")
+    try:
+        _save_registry(data)
+    except CourseListError:
+        pass
     import curses
     action, ws = curses.wrapper(_menu_loop, data)
-    _save_registry(data)  # persist any default change made with 'd'
+    try:
+        _save_registry(data)  # persist any default change made with 'd'
+    except CourseListError as e:
+        print(f"Nicht gespeichert: {e}")
 
     if action == "quit":
         return 0
