@@ -80,9 +80,19 @@ is interactive tutoring, where latency is felt more than reasoning depth helps.
 Differences of the opencode engine: opencode has no `--append-system-prompt`, so the
 launcher writes the prompt to `$XDG_RUNTIME_DIR/study/prompt-<hash>.md` and passes it,
 with the course's `CLAUDE.md`, as `instructions`; subagents run on the session's model.
-The **Tutor Board and Google Calendar are not connected** out of the box (Claude Code
-gets them as claude.ai connectors; opencode needs its own MCP entry), so use the
-Xournal++ medium unless you add the Tutor Board to opencode yourself.
+The **Tutor Board** is registered for you in every `openstudy` session
+(`https://beta.probable.work/mcp`, override with `STUDY_BOARD_MCP_URL`); nothing is
+written to your opencode config. Google Calendar is not connected (Claude Code gets it
+as a claude.ai connector; opencode needs its own MCP entry).
+
+### First start: log in to the Tutor Board
+
+The board needs a Tutor Board account (see [Media](#media)). On the first `openstudy`
+start, type `/mcps` in the session, choose `tutor-board` and log in with the link from
+your board's share menu. Without a board account, use the Xournal++ medium; it works
+without any of this. `opencode mcp list` and `opencode mcp auth` do not show the entry,
+because they ask opencode's shared background service, which does not see the
+launcher's config; log in through `/mcps`.
 
 ## Usage
 
@@ -187,6 +197,7 @@ Every variable is read as `STUDY_<NAME>`; the old `STUDYCLAUDE_<NAME>` and
 | `STUDY_CONFIG_DIR` | Where `host.json` lives (default `~/.config/study`) |
 | `STUDY_EXAMS` | Markdown file with your exam-date table (banner off when unset; registry key `exams_file` does the same) |
 | `STUDY_MEDIUM` | Override the working medium for one launch (`xournalpp` \| `board`) |
+| `STUDY_BOARD_MCP_URL` | Tutor Board MCP URL that `openstudy` registers (default `https://beta.probable.work/mcp`) |
 
 **Where things live.** The course list is `<study root>/.study/courses.json`, next to your
 courses (versioned, one entry per course with a stable `id`, paths relative to the root).

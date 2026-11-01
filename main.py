@@ -403,6 +403,14 @@ def _prompt_file(prompt: str) -> str:
     return str(path)
 
 
+BOARD_MCP_NAME = "tutor-board"
+BOARD_MCP_URL = "https://beta.probable.work/mcp"
+
+
+def _board_mcp_url() -> str:
+    return _env("BOARD_MCP_URL", BOARD_MCP_URL)
+
+
 def _backend_launch(prompt: str, workdir: str) -> list[str]:
     """The command prefix that starts the engine with `prompt` appended.
 
@@ -420,7 +428,13 @@ def _backend_launch(prompt: str, workdir: str) -> list[str]:
     course_md = Path(workdir) / "CLAUDE.md"
     if course_md.is_file():
         instructions.append(str(course_md))
-    config: dict = {"instructions": instructions}
+    # No "enabled" key (the schema allows only "disabled"); OAuth stays on. The
+    # login happens in the TUI (/mcps), since `opencode mcp auth` asks the shared
+    # background service, which does not see this config.
+    config: dict = {
+        "instructions": instructions,
+        "mcp": {"servers": {BOARD_MCP_NAME: {"type": "remote", "url": _board_mcp_url()}}},
+    }
     model = _select_model()
     if model != OPENCODE_STANDARD:
         provider, name = _OPENCODE_MODEL_IDS.get(model, model).split("/", 1)
@@ -522,6 +536,34 @@ def _subagent_rule() -> str:
             "Suchen oder Abschreiben. Sie laufen auf dem Modell der Session.")
 
 
+def _board_login_hint() -> str:
+    """What to tell the user when the board connector is not logged in (opencode
+    only: Claude Code gets the board as a claude.ai connector)."""
+    if ENGINE == "claude":
+        return ""
+    return (f"Das Tutor Board ist eingetragen, aber noch nicht angemeldet: tippe /mcps, "
+            f"wähle {BOARD_MCP_NAME} und melde dich mit dem Link aus dem Teilen-Menü "
+            "deines Boards an.")
+
+
+def _board_engine_rule() -> str:
+    """opencode-only board rules: the login, and how to wait (Claude Code's
+    Monitor does not exist there). The wait steps themselves come from the
+    server's wait_url."""
+    if ENGINE == "claude":
+        return ""
+    return (
+        f"Die Tutor-Board-Tools gehören dem MCP-Server {BOARD_MCP_NAME}. Fehlen sie "
+        f"oder meldet er needs_auth, sag dem User: „{_board_login_hint()}“ Bitte "
+        "niemals im Chat um einen Board-Link und baue keinen eigenen Shell-Client; "
+        "die Anmeldung läuft nur über /mcps.\n"
+        "Warten auf den User (Übergabe, Übersicht, „Noch eins?“): ruf wait_url des "
+        "Board-MCP auf und starte die Curl-Schleife mit `renew` aus dessen Anleitung "
+        "als Hintergrund-Shell; opencode meldet sich, wenn sie endet. Kein Turn endet "
+        "nach einer Übergabe ohne laufenden Wait.\n"
+    )
+
+
 def _prompt_common() -> str:
     """The launcher-owned orientation every session gets: the active medium and
     its mechanics, the no-LaTeX terminal rule, and today's date."""
@@ -543,6 +585,7 @@ def _prompt_common() -> str:
         "und überall, wo das Arbeitsmedium LaTeX rendert (Tutor Board), "
         "schreibst du LaTeX wie in der Medium-Mechanik unten beschrieben.\n\n"
         f"{_subagent_rule()}\n"
+        + (_board_engine_rule() if medium == "board" else "") +
         "</orientierung>\n\n"
         f"<heute>\n# Heute: {today}\n</heute>\n"
     )
@@ -1941,8 +1984,11 @@ def opening_message_begleiter(workspaces: list, now: "datetime | None" = None) -
                   "</wochenplan>\n\n") if plan else ""
     return (
         f"Begleiter — jetzt ist {_now_line(now)}.\n\n"
-        f"1. Lies mein Profil (Tab „{PROFILE_TAB}“ auf einem meiner Boards). Gibt es "
-        "kein Tutor Board oder auf keinem Board den Tab: sag das in einem Satz, frag "
+        f"1. Lies mein Profil (Tab „{PROFILE_TAB}“ auf einem meiner Boards). "
+        + (f"Sind die Board-Tools nicht da (needs_auth), sag zuerst: „{_board_login_hint()}“ "
+           "Erbitte nie den Board-Link im Chat und baue keinen eigenen Shell-Client. "
+           if ENGINE != "claude" else "") +
+        "Gibt es erst dann kein Tutor Board oder auf keinem Board den Tab: sag das in einem Satz, frag "
         "mich nach Studiengang, Semester und wo mein Stundenplan steht, und biete an, "
         "den Tab auf einem Board meiner Wahl anzulegen.\n"
         "2. Schau in den Stundenplan, den das Profil nennt: was gerade läuft, was eben "

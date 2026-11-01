@@ -11,7 +11,15 @@ passes an entry's args to the lifecycle commands (cli-tools-kit 602af85).
 
 Facts tested 2026-10-31 on opencode v2.1.2: `instructions` in `OPENCODE_CONFIG_CONTENT`
 loads both files (needs `--standalone`); CLAUDE.md in cwd is NOT loaded; the TUI has
-`--prompt`. Not tested: the interactive TUI with `--prompt` and `-m …#effort` together.
+`--prompt`. Tutor Board under opencode (2026-11-01): `_backend_launch` puts `mcp.servers.tutor-board`
+(`type remote`, `url`; no `enabled`, the schema has only `disabled`; OAuth stays on) into
+`OPENCODE_CONFIG_CONTENT`. The session server sees it (`needs_auth` until the user logs in
+with `/mcps`); `opencode mcp list/auth` do NOT, they ask the shared background service. So
+there is no launcher-side login step, only the hint text (`_board_login_hint`, in the
+Begleiter opening and `_board_engine_rule`). Unknown: whether the `/mcps` login persists
+across `--standalone` starts. The opencode wait mechanics (wait_url + background shell) are
+in `_board_engine_rule`, not in `board.md`, whose test forbids "curl".
+Not tested: the interactive TUI with `--prompt` and `-m …#effort` together.
 
 **openstudy is the default (user, 2026-10-31)**, because opencode reaches any provider,
 free and local models included. Without `--engine` and `STUDY_ENGINE`, `_initial_engine`

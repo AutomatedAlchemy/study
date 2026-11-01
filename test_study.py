@@ -1333,3 +1333,46 @@ def test_the_first_move_records_the_hint(tmp_path):
     _write(m._registry_path(), {"workspaces": [a], "migrated": True})
     m._load_registry()
     assert json.loads(m._registry_path().read_text())["root_hint"] == m._tilde(str(tmp_path))
+
+
+def test_opencode_registers_the_tutor_board_mcp(tmp_path, monkeypatch):
+    monkeypatch.setattr(m, "ENGINE", "opencode")
+    ws = _courses(tmp_path, "a")[0]
+    cfg = json.loads(m._build_argv(ws)[1].split("=", 1)[1])
+    entry = cfg["mcp"]["servers"][m.BOARD_MCP_NAME]
+    assert entry == {"type": "remote", "url": m.BOARD_MCP_URL}   # no "enabled", OAuth not disabled
+    monkeypatch.setenv("STUDY_BOARD_MCP_URL", "https://example.invalid/mcp")
+    cfg = json.loads(m._build_argv(ws)[1].split("=", 1)[1])
+    assert cfg["mcp"]["servers"][m.BOARD_MCP_NAME]["url"] == "https://example.invalid/mcp"
+
+
+def test_claude_launch_has_no_mcp_entry_and_no_opencode_board_text(tmp_path, monkeypatch):
+    monkeypatch.setattr(m, "ENGINE", "claude")
+    monkeypatch.setenv("STUDY_MEDIUM", "board")
+    ws = _courses(tmp_path, "a")[0]
+    argv = m._build_argv(ws)
+    assert "mcp" not in " ".join(argv[:5]) and argv[0] == "claude"
+    assert "/mcps" not in m._assemble_begleiter_prompt()
+    assert "/mcps" not in m.opening_message_begleiter([ws])
+
+
+def test_opencode_tells_the_user_to_log_in_via_mcps(tmp_path, monkeypatch):
+    monkeypatch.setattr(m, "ENGINE", "opencode")
+    monkeypatch.setenv("STUDY_MEDIUM", "board")
+    ws = _courses(tmp_path, "a")[0]
+    opening = m.opening_message_begleiter([ws])
+    assert "/mcps" in opening and "Teilen-Menü" in opening
+    assert "nie den Board-Link im Chat" in opening
+    prompt = m._assemble_begleiter_prompt()
+    assert "wait_url" in prompt and "renew" in prompt and "keinen eigenen Shell-Client" in prompt
+    monkeypatch.setenv("STUDY_MEDIUM", "xournalpp")
+    assert "wait_url" not in m._assemble_begleiter_prompt()
+
+
+def test_board_template_has_the_review_wait_and_key_rules():
+    text = (HERE / "templates" / "media" / "board.md").read_text(encoding="utf-8")
+    assert "endet kein Turn ohne laufenden Wait" in text
+    assert "im Board-Chat gar nichts" in text
+    assert "nur Felder\n  mit Schlüssel" in text or "zählt nur Felder" in text
+    assert "ganze** Aufgabe fehlerfrei" in text and "ersten Satz" in text
+    assert "Freitext-Antworten" in text and "ohne Schlüssel" in text
