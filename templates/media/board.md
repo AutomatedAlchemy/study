@@ -1,8 +1,8 @@
 # Arbeitsmedium-Mechanik: Tutor Board
 
 **Voraussetzung:** Das Board braucht ein Tutor-Board-Konto (Einladung nötig,
-beta.probable.work). Die MCP-Verbindung wird außerhalb von study
-konfiguriert.
+beta.probable.work). Die MCP-Verbindung richtet der Launcher ein bzw. sie
+kommt von den Connectors des Users; study speichert keine Zugangsdaten.
 
 **Bedienung des Boards:** den Tool-Beschreibungen und den Server-Instructions des
 Tutor-Board-MCP folgen. Diese Datei sagt nur, was der Lern-Loop auf dem Board haben
@@ -54,6 +54,11 @@ beschrieben oder behoben, nicht hier umschifft.
   `select_tab` jeden Eintrag selbst nachrechnen und die Zuordnung Feld → Wert
   prüfen. Ein falscher Schlüssel markiert eine richtige Abgabe als falsch und
   verfälscht das Fehlermuster. Gleichwertige Schreibweisen als Liste angeben.
+- **Freitext-Antworten** (Nutzervorgabe 2026-11-01): ist die Antwort eindeutig
+  prüfbar (ein Begriff, ein Wort, eine Formel), kommt sie mit allen gleichwertigen
+  Schreibweisen als Liste in den Schlüssel. Echte Freitext-Fragen (Bedeutung in
+  eigenen Worten) bleiben ohne Schlüssel und werden im Review ausdrücklich
+  bewertet, nicht übergangen.
 - **Unter jeder Aufgabe ein Korrektur-Platzhalter** (Nutzervorgabe 23.09.2026):
   direkt nach ihrem letzten Block (Knopf oder Eingabefeld), vor der nächsten
   Aufgabe, ein Markdown-Block mit der Id `<aufgabe>_korrektur`, der bis zum
@@ -189,8 +194,12 @@ ohne `select_tab`. Eine Korrektur darf auf den Tab verweisen („steht in
 
 Gilt für jeden Wait: Übersichts-Bestätigung, Häppchen-Abgabe, „Noch eins?".
 
+- **Feste Regel für beide Engines** (Nutzervorgabe 2026-11-01): nach jeder
+  Übergabe endet kein Turn ohne laufenden Wait. Das gilt für ein Häppchen, die
+  Übersicht, „Noch eins?“, das Wiedervorlegen eines liegengebliebenen Tabs und die
+  Drei-Zeilen-Ansage des Begleiters. Ein Tab ohne Wait ist nicht übergeben.
 - Warten, wie der MCP es beschreibt (bevorzugt der Weg, der keine Modellaufrufe
-  kostet). Nach dem Aufwachen sagt das Ereignis, ob der User geklickt oder
+  kostet). Welche Mechanik die Engine dafür hat, steht in der Orientierung oben. Nach dem Aufwachen sagt das Ereignis, ob der User geklickt oder
   geschrieben hat; entsprechend Board oder Chat lesen.
 - **Den Wait als Monitor führen, nicht als Hintergrund-Shell.** Claude Code
   räumt Hintergrund-Shells ab, sobald der Kernel Speicherdruck meldet
@@ -209,12 +218,17 @@ Gilt für jeden Wait: Übersichts-Bestätigung, Häppchen-Abgabe, „Noch eins?"
 
 ## Review
 
-- Abgaben samt Score vom Board lesen. Trägt der Tab eine Zeichnung, sie holen —
+- Abgaben samt Score vom Board lesen. **Der automatische Score zählt nur Felder
+  mit Schlüssel** und ist nie der Gesamtstand (Nutzervorgabe 2026-11-01: „7/7 im
+  Schlüssel“ war der Fehler, die Aufgabe hatte noch ein falsches Freitextfeld).
+  Einen Gesamtstand nennst du nur über alle Felder, auch die ohne Schlüssel. Trägt der Tab eine Zeichnung, sie holen —
   **nie über eine ungesehene Zeichnung raten**.
 - Die Korrektur **am selben Tab, direkt unter der Aufgabe** zeigen, nicht nur im
   Chat und nie gesammelt am Tabende: Zitat → warum falsch → was stattdessen,
-  **je Fehler höchstens fünf Sätze**. Jede Aufgabe bekommt ihre eigene Korrektur,
-  eine richtig gelöste ein kurzes „✓“. Sie kommt per `update_block` in den
+  **je Fehler höchstens fünf Sätze**. Jede Aufgabe bekommt ihre eigene Korrektur.
+  Ein „✓“ steht nur, wenn die **ganze** Aufgabe fehlerfrei ist, auch die Felder
+  ohne Schlüssel; sonst „✗“ und der Fehler im **ersten Satz**, nicht als
+  „Kleinigkeit“ nach einem Lob. Sie kommt per `update_block` in den
   Platzhalter `<aufgabe>_korrektur`; der `submit`-Knopf der Aufgabe darf
   stattdessen ersetzt werden, er steht an derselben Stelle (Nutzervorgabe
   19.09. und 23.09.2026). Die Eingaben des Users bleiben stehen.
@@ -223,6 +237,9 @@ Gilt für jeden Wait: Übersichts-Bestätigung, Häppchen-Abgabe, „Noch eins?"
   mit dem die nächste Aufgabe beginnt, abgesetzt durch eine Linie. Nur bei der
   letzten Aufgabe darf sie angehängt werden, denn das Tabende ist dort direkt
   unter der Aufgabe.
+- **Nach einer Korrektur steht im Board-Chat gar nichts** (Nutzervorgabe
+  2026-11-01: „verwende den Chat nicht als Umweg“). Alles zur Abgabe steht im Tab.
+  Der Chat bleibt für Rückfragen des Users und Organisatorisches.
 - Ist der Score falsch, weil der Schlüssel falsch war, das auf dem Board
   richtigstellen und dem User sagen.
 - Danach den Tab „Fortschritt" per `update_block` nachziehen (Ampeln,
