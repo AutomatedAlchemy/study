@@ -25,14 +25,14 @@ def test_every_output_is_valid_svg():
 def test_one_main_branch_per_course_and_a_capped_number():
     def mains(n):
         # the main branches are the paths with stroke-width group 6.5, one per course plus the trunk
-        group = re.search(r'<g fill="none" stroke-width="6.5".*?</g>', _svg([Course()] * n)).group(0)
+        group = re.search(r'<g fill="none" stroke-width="7".*?</g>', _svg([Course()] * n)).group(0)
         return group.count("<path") - 1
     assert [mains(n) for n in (0, 1, 5)] == [0, 1, 5]
     assert mains(50) == icon.MAX_COURSES
 
 
 def test_more_done_means_more_twigs_with_a_ceiling():
-    assert [icon.twigs_for(d) for d in (0, 1, 4, 9, 16, 1000)] == [0, 1, 2, 3, 4, icon.MAX_TWIGS]
+    assert [icon.twigs_for(d) for d in (0, 1, 4, 9, 16, 1000)] == [0, 1, 2, 3, 3, icon.MAX_TWIGS]
     few = _svg([Course(1)])
     many = _svg([Course(100)])
     assert _count(many, r'stroke-width="4".*?</g>') == _count(few, r'stroke-width="4".*?</g>')

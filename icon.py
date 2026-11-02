@@ -21,8 +21,7 @@ CX, BASE, TOP = 256, 396, 288
 GOLD, YELLOW, PINK, CREAM = "#ffb347", "#ffd166", "#ff4f8b", "#fff3d6"
 STALE = "#9a7a8c"
 STALE_DAYS = 14
-MAX_COURSES = 12
-MAX_TWIGS = 4
+MAX_TWIGS = 3
 _COLOURS = (PINK, YELLOW, PINK, YELLOW)
 
 _MARKED = re.compile(r"<!--tree-->.*?<!--/tree-->", re.DOTALL)
@@ -65,48 +64,47 @@ def _fmt(pts) -> str:
     return "M" + " L".join(f"{x:.1f} {y:.1f}" for x, y in pts)
 
 
+# Hand-placed branches, in the order courses claim them: the first few make a
+# small, balanced tree and every later one fills it out, never towards the middle.
+_SLOTS = (
+    ((256, 380), (292, 348), (292, 322)),
+    ((256, 364), (222, 334), (222, 308)),
+    ((256, 394), (206, 370), (192, 370)),
+    ((256, 392), (312, 372), (324, 372)),
+    ((256, 338), (284, 312), (300, 296)),
+    ((222, 334), (204, 322), (200, 306)),
+    ((292, 348), (310, 336), (318, 318)),
+    ((206, 370), (194, 352), (190, 338)),
+    ((312, 372), (324, 356), (326, 340)),
+    ((256, 310), (238, 298), (232, 286)),
+)
+MAX_COURSES = len(_SLOTS)
+
+
 def tree_svg(courses: "Iterable[Course]") -> str:
     """The SVG fragment for the tree of these courses (no courses: a sprout)."""
     courses = list(courses)[:MAX_COURSES]
     n = len(courses)
-    levels = max(1, math.ceil(n / 2))
-    span = 84.0
-    gap = min(22.0, span / levels)
-    lines, twig_lines, nodes = [], [], []
-
-    top = BASE - 12 - gap * (levels - 1) - (gap / 2 if n > 1 else 0) - 20
-    top = max(TOP, min(top, 350))
-    lines.append(f'<path d="M{CX} {BASE} V{top:.1f}" stroke="{GOLD}"/>')
-    nodes.append(f'<circle cx="{CX}" cy="{top:.1f}" r="{10 if n else 7}" fill="{CREAM}"/>')
-
-    for i, course in enumerate(courses):
-        side = -1 if i % 2 == 0 else 1
-        level = i // 2
-        y = BASE - 12 - level * gap - (gap / 2 if side == 1 else 0)
-        rise = max(11 - level, 5)
-        slope = (0.55, 0.8, 0.45, 0.7, 0.6)[i % 5]
-        reach = 58 - level * 6 + (3 if side == 1 else 0) - (i * 7) % 5
-        while reach > 14 and _wall(y - reach * slope - rise) - reach < 24:
-            reach -= 2
-        ex, ey = CX + side * reach, y - reach * slope
-        pts = [(CX, y), (ex, ey), (ex, ey - rise)]
+    top = max(TOP, 346 - 12 * n) if n else 346
+    lines = [f'<path d="M{CX} {BASE} V{top}" stroke="{GOLD}"/>']
+    twig_lines = []
+    nodes = [f'<circle cx="{CX}" cy="{top}" r="{10 if n else 7}" fill="{CREAM}"/>']
+    for i, (course, pts) in enumerate(zip(courses, _SLOTS)):
         stale = course.idle_days is not None and course.idle_days >= STALE_DAYS
-        colour = STALE if stale else _COLOURS[i % len(_COLOURS)]
+        colour = STALE if stale else (PINK, YELLOW)[i % 2]
         lines.append(f'<path d="{_fmt(pts)}" stroke="{colour}"/>')
-        nodes.append(f'<circle cx="{pts[-1][0]:.1f}" cy="{pts[-1][1]:.1f}" r="6" fill="{colour}"/>')
+        nodes.append(f'<circle cx="{pts[-1][0]}" cy="{pts[-1][1]}" r="6" fill="{colour}"/>')
+        side = 1 if pts[-1][0] > CX else -1
         k = twigs_for(course.done)
-        for j in range(k):
-            px, py = _point(pts, (j + 1) / (k + 1) * 0.92)
-            steep = j % 2 == 0   # alternate steep and flat twigs, always away from the trunk
-            dx, dy = side * (7 if steep else 11), -(11 if steep else 7)
-            tx, ty = px + dx, py + dy
+        for j, f in enumerate((0.55, 0.8, 0.95)[:k]):
+            px, py = _point(pts, f)
+            tx, ty = px + side * 8, py - 8
             if _wall(ty) - abs(tx - CX) < 12:
                 continue
             twig_lines.append(f'<path d="M{px:.1f} {py:.1f} L{tx:.1f} {ty:.1f}" stroke="{colour}"/>')
-            nodes.append(f'<circle cx="{tx:.1f}" cy="{ty:.1f}" r="3.4" fill="{colour}"/>')
-
+            nodes.append(f'<circle cx="{tx:.1f}" cy="{ty:.1f}" r="3.2" fill="{colour}"/>')
     return ("<!--tree-->"
-            '<g fill="none" stroke-width="6.5" stroke-linecap="round" stroke-linejoin="round">'
+            '<g fill="none" stroke-width="7" stroke-linecap="round" stroke-linejoin="round">'
             + "".join(lines) + "</g>"
             '<g fill="none" stroke-width="4" stroke-linecap="round">' + "".join(twig_lines) + "</g>"
             + "".join(nodes) + "<!--/tree-->")
