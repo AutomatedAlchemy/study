@@ -14,8 +14,8 @@
     </radialGradient>
     
   </defs>
-  <path d="M182 116 Q182 210 248 250 Q182 290 182 396 L330 396 Q330 290 264 250 Q330 210 330 116 Z" fill="#2a0d3a" fill-opacity="0.85" stroke="#ffd166" stroke-width="7" stroke-linejoin="round"/>
-  <path d="M198 176 Q222 220 256 244 Q290 220 314 176 Z" fill="url(#accG)"/>
+  <path d="M164 116 Q164 210 248 250 Q164 290 164 396 L348 396 Q348 290 264 250 Q348 210 348 116 Z" fill="#2a0d3a" fill-opacity="0.85" stroke="#ffd166" stroke-width="7" stroke-linejoin="round"/>
+  <path d="M180 176 Q214 220 256 244 Q298 220 332 176 Z" fill="url(#accG)"/>
   <g fill="#fff3d6"><circle cx="256" cy="262" r="4"/><circle cx="256" cy="275" r="3.5"/><circle cx="256" cy="287" r="3"/></g>
   <g fill="none" stroke-width="8" stroke-linecap="round" stroke-linejoin="round">
     <path d="M256 396 V309" stroke="#ffb347"/>
@@ -27,9 +27,9 @@
   <circle cx="256" cy="309" r="10" fill="#fff3d6"/>
   <circle cx="224" cy="321" r="8" fill="#ff4f8b"/><circle cx="288" cy="321" r="8" fill="#ffd166"/>
   <circle cx="196" cy="366" r="7" fill="#ffd166"/><circle cx="316" cy="366" r="7" fill="#ff4f8b"/>
-  <rect x="146" y="96" width="220" height="24" rx="10" fill="url(#mainG)"/>
-  <rect x="146" y="392" width="220" height="24" rx="10" fill="url(#mainG)"/>
-  <rect x="156" y="118" width="13" height="276" fill="#c2410c"/>
-  <rect x="343" y="118" width="13" height="276" fill="#c2410c"/>
-  <path d="M198 134 Q200 190 230 226" fill="none" stroke="#fff3d6" stroke-width="6" stroke-linecap="round" opacity="0.5"/>
+  <rect x="120" y="96" width="272" height="24" rx="10" fill="url(#mainG)"/>
+  <rect x="120" y="392" width="272" height="24" rx="10" fill="url(#mainG)"/>
+  <rect x="130" y="118" width="13" height="276" fill="#c2410c"/>
+  <rect x="369" y="118" width="13" height="276" fill="#c2410c"/>
+  <path d="M180 134 Q182 190 222 226" fill="none" stroke="#fff3d6" stroke-width="6" stroke-linecap="round" opacity="0.5"/>
 </svg>
