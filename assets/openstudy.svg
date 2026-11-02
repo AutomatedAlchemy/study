@@ -14,13 +14,6 @@
     </radialGradient>
     
   </defs>
-  <rect x="24" y="24" width="464" height="464" rx="112" fill="url(#bg)"/>
-  <g opacity="0.85">
-    <circle cx="96" cy="100" r="5" fill="#ffd166"/><circle cx="420" cy="92" r="6" fill="#ff4f8b"/>
-    <circle cx="256" cy="66" r="4" fill="#fff3d6"/><circle cx="420" cy="420" r="4" fill="#ffb347"/>
-    <circle cx="88" cy="300" r="4" fill="#ff4f8b"/><circle cx="430" cy="250" r="3.5" fill="#fff3d6"/>
-    <circle cx="150" cy="70" r="3" fill="#ffb347"/><circle cx="360" cy="64" r="3" fill="#ffd166"/>
-  </g>
   <path d="M182 116 Q182 210 248 250 Q182 290 182 396 L330 396 Q330 290 264 250 Q330 210 330 116 Z" fill="#2a0d3a" fill-opacity="0.85" stroke="#ffd166" stroke-width="7" stroke-linejoin="round"/>
   <path d="M198 176 Q222 220 256 244 Q290 220 314 176 Z" fill="url(#accG)"/>
   <g fill="#fff3d6"><circle cx="256" cy="262" r="4"/><circle cx="256" cy="279" r="3.5"/><circle cx="256" cy="295" r="3"/><circle cx="256" cy="309" r="2.5"/></g>
