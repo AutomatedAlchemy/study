@@ -62,7 +62,7 @@ ENTRIES = {
     "claude": dict(_ENTRY_COMMON, **{
         "name": "studyclaude",
         "desktop_file": "studyclaude.desktop",
-        "icon": "accessories-text-editor",
+        "icon": os.path.join(_ICON_DIR, "openstudy.svg"),
         "desc": "Spawn a Claude session that runs a personalized exam-prep Lern-Loop in a workspace",
         "args": ["--engine", "claude"],
         "alias": "studyclaude",
@@ -148,6 +148,8 @@ if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
 import courses as course_list  # noqa: E402  (sibling module, see above)
+import usage_guard  # noqa: E402
+import icon as course_icon  # noqa: E402
 
 
 def _material_root() -> str:
@@ -2029,12 +2031,150 @@ def _launch_begleiter(data: dict, *, inline: bool) -> int:
 
 
 # ----------------------------------------------------------------------------
+# Eigener Modus: the user types what the session is for ("Nachbereitung der
+# Vorlesung von heute", "Klausursimulation 30 min") and the model turns that
+# into a plan of its own — the launcher builds no mode logic, it only passes
+# the Auftrag through with the usual context. Across all courses from the mode
+# row, or inside one course with `p` on its row. Recent Aufträge are kept in
+# the registry and shown as menu rows so a good one becomes a reusable mode.
+# ----------------------------------------------------------------------------
+_CUSTOM_KEEP = 8
+
+
+def _custom_modes(data: dict) -> list:
+    return [str(m) for m in (data.get("custom_modes") or []) if str(m).strip()]
+
+
+def _remember_custom(data: dict, text: str) -> None:
+    """Most recent first, no duplicates, at most _CUSTOM_KEEP. The caller saves."""
+    text = text.strip()
+    modes = [m for m in _custom_modes(data) if m != text]
+    data["custom_modes"] = ([text] + modes)[:_CUSTOM_KEEP]
+
+
+def _assemble_custom_prompt() -> str:
+    """System prompt for a free-form session across all courses."""
+    return (
+        "Du bist der Tutor des Users über alle seine Lern-Loop-Kurse. Diese Session "
+        "hat keinen festen Modus: der User hat beim Start in eigenen Worten gesagt, "
+        "wofür sie da ist (in der ersten Nachricht im Tag <auftrag>). Mach daraus "
+        "selbst einen passenden Ablauf.\n\n"
+        "- Geht es um einen Kurs, ordne ihn über die Dossiers zu, lies dessen CLAUDE.md "
+        "(sie lädt nicht von selbst, die Session startet über allen Kursen) und nutze "
+        "seine Dateien und seine Lern-Loop-Mechanik, wo sie passt; dupliziere sie nicht.\n"
+        f"- Wer der User ist und wo Stundenplan und Semestermaterial liegen, steht auf "
+        f"dem Tutor Board im Tab „{PROFILE_TAB}“ — lies ihn, wenn der Auftrag das "
+        "braucht (z.B. Nachbereitung einer Vorlesung).\n"
+        "- Lies vor jeder Aussage über Zeit mit `date` die aktuelle Uhrzeit.\n"
+        "- Halte in todo.md des betroffenen Kurses fest, was in der Session passiert "
+        "ist, damit die nächste Session es sieht. Alle Dateiarbeit mit absoluten Pfaden.\n\n"
+        + _prompt_common()
+    )
+
+
+def _custom_head(text: str) -> str:
+    return (
+        "Eigener Modus. Das will ich in dieser Session:\n"
+        f"<auftrag>\n{text.strip()}\n</auftrag>\n"
+        "Der Auftrag kommt von mir und gilt. Begrüß mich in einem Satz, sag in "
+        "höchstens drei Zeilen, wie du ihn angehst (Ablauf, ungefähre Dauer, Medium), "
+        "und leg dann los. Frag nur nach, wenn der Auftrag ohne Rückfrage nicht "
+        "sinnvoll umsetzbar ist.\n\n"
+    )
+
+
+def opening_message_custom(text: str, workspaces: list,
+                           now: "datetime | None" = None) -> str:
+    dossiers = "\n\n".join(_course_dossier(ws) for ws in workspaces)
+    return (
+        _custom_head(text)
+        + f"Jetzt ist {_now_line(now)}.\n\n"
+        f"Anstehende Klausuren:\n<klausuren>\n{_exam_prompt_lines()}\n</klausuren>\n\n"
+        f"Kurse:\n<dossiers>\n{dossiers}\n</dossiers>\n"
+        f"{_DATA_TAGS_NOTE}\n\n"
+        "Wird es ein Häppchen: " + _LOOP_BRIEF + " " + _finder_brief()
+    )
+
+
+def opening_message_custom_course(text: str, workspace: str,
+                                  now: "datetime | None" = None) -> str:
+    return (
+        _custom_head(text)
+        + f"Jetzt ist {_now_line(now)}. Kurs: dieser Ordner, die CLAUDE.md ist geladen; "
+        "nutze seine Dateien und seine Lern-Loop-Mechanik, wo sie zum Auftrag passt.\n\n"
+        "Wird es ein Häppchen: " + _LOOP_BRIEF + " " + _finder_brief()
+    )
+
+
+def _launch_custom(data: dict, text: str, workspace: "str | None" = None, *,
+                   inline: bool) -> int:
+    """A session for a typed Auftrag: inside `workspace` when given, at the
+    courses' common root otherwise. The Auftrag is remembered for the menu."""
+    _remember_custom(data, text)
+    _save_registry(data)
+    if workspace:
+        inner = [*_backend_launch(_assemble_prompt(workspace), workspace),
+                 *_opening_args(opening_message_custom_course(text, workspace))]
+        return _exec_or_konsole(inner, workspace, inline=inline)
+    workspaces = data["workspaces"]
+    inner = [*_backend_launch(_assemble_custom_prompt(), _tutor_workdir(workspaces)),
+             *_opening_args(opening_message_custom(text, workspaces))]
+    return _exec_or_konsole(inner, _tutor_workdir(workspaces), inline=inline)
+
+
+# ----------------------------------------------------------------------------
 # startup menu (curses): pick a course, add one, set the default; 10s autostart
 # ----------------------------------------------------------------------------
 _ADD_SENTINEL = "__ADD__"
 _QUICKIE_SENTINEL = "__QUICKIE__"
 _BEGLEITER_SENTINEL = "__BEGLEITER__"
-_SENTINELS = (_ADD_SENTINEL, _QUICKIE_SENTINEL, _BEGLEITER_SENTINEL)
+_CUSTOM_SENTINEL = "__CUSTOM__"
+_SENTINELS = (_ADD_SENTINEL, _QUICKIE_SENTINEL, _BEGLEITER_SENTINEL, _CUSTOM_SENTINEL)
+# A saved Auftrag's menu row: this prefix + its text. Never a default.
+_SAVED_PREFIX = "__MODE__:"
+
+
+def _is_saved_row(row: str) -> bool:
+    return row.startswith(_SAVED_PREFIX)
+
+
+def _text_input(stdscr, C, title: str, hint: str, initial: str = "") -> "str | None":
+    """One-line text entry (Unicode, Backspace, ←/→ not needed). Enter returns
+    the text, Esc returns None."""
+    import curses
+    text = initial
+    curses.curs_set(1)
+    stdscr.timeout(-1)
+    try:
+        while True:
+            stdscr.erase()
+            _safe_addstr(stdscr, 0, 0, f"╭─ {title} ─╮", C["title"])
+            _safe_addstr(stdscr, 2, 0, hint, C["path"])
+            _safe_addstr(stdscr, 4, 0, "  › ", C["title"])
+            _safe_addstr(stdscr, 4, 4, text, C["tutor"])
+            _safe_addstr(stdscr, 6, 0, "Enter = starten · Esc = zurück", C["foot"])
+            try:
+                stdscr.move(4, min(4 + len(text), max(0, stdscr.getmaxyx()[1] - 1)))
+            except Exception:
+                pass
+            stdscr.refresh()
+            try:
+                ch = stdscr.get_wch()
+            except curses.error:
+                continue
+            if ch in ("\n", "\r", curses.KEY_ENTER):
+                return text.strip() or None
+            if ch == "\x1b":
+                return None
+            if ch in ("\x7f", "\b", curses.KEY_BACKSPACE):
+                text = text[:-1]
+            elif ch == "\x15":          # Ctrl+U clears
+                text = ""
+            elif isinstance(ch, str) and ch.isprintable():
+                text += ch
+    finally:
+        curses.curs_set(0)
+        stdscr.timeout(200)
 
 
 def _needs_konsole_reexec() -> bool:
@@ -2301,14 +2441,53 @@ def _model_selection_menu(
         stdscr.timeout(200)
 
 
-def _menu_rows(workspaces: list) -> list:
-    """Begleiter and Quickie on top (as soon as there is a course), then the
-    courses, the add row."""
-    modes = [_BEGLEITER_SENTINEL, _QUICKIE_SENTINEL] if workspaces else []
+def _menu_rows(workspaces: list, saved: list = ()) -> list:
+    """Begleiter, Quickie and Eigener Modus on top (as soon as there is a
+    course) with the saved Aufträge under them, then the courses, the add row."""
+    modes = ([_BEGLEITER_SENTINEL, _QUICKIE_SENTINEL, _CUSTOM_SENTINEL]
+             + [_SAVED_PREFIX + s for s in saved]) if workspaces else []
     return modes + workspaces + [_ADD_SENTINEL]
 
 
-def _menu_loop(stdscr, data: dict):
+# Usage guard (user, 2026-11-01): at or above this share of the Claude subscription
+# (session or weekly), the menu does not autostart and pre-selects Sonnet at medium.
+# The previous pick is kept in the registry and restored once usage is below again;
+# changing model or effort by hand in between makes that choice stick instead.
+USAGE_HALT_PERCENT = 90.0
+_GUARD_MODEL, _GUARD_EFFORT = "sonnet", "medium"
+_GUARD_RESTORE_KEY = "usage_guard_restore"
+
+
+def _usage_percent() -> "float | None":
+    return usage_guard.current_percent()
+
+
+def _apply_usage_guard(data: dict) -> "float | None":
+    """Check usage before the menu opens; returns the percent when the guard holds,
+    else None. Only the claude engine runs on the subscription. An unreadable
+    usage leaves the menu as it always was."""
+    if ENGINE != "claude":
+        return None
+    pct = _usage_percent()
+    if pct is None:
+        return None
+    restore = data.get(_GUARD_RESTORE_KEY)
+    if pct < USAGE_HALT_PERCENT:
+        if isinstance(restore, dict):
+            data["model"] = restore.get("model") or data.get("model")
+            data["effort"] = restore.get("effort") or data.get("effort")
+            data.pop(_GUARD_RESTORE_KEY, None)
+        return None
+    if not isinstance(restore, dict):
+        model = str(data.get("model") or _default_model())
+        effort = str(data.get("effort") or DEFAULT_EFFORT)
+        if (model, effort) != (_GUARD_MODEL, _GUARD_EFFORT):
+            data[_GUARD_RESTORE_KEY] = {"model": model, "effort": effort}
+    data["model"], data["effort"] = _GUARD_MODEL, _GUARD_EFFORT
+    return pct
+
+
+def _menu_loop(stdscr, data: dict, usage_halt: "float | None" = None):
     import curses
     curses.curs_set(0)
     stdscr.timeout(200)  # ms poll, so the 10s countdown can tick without a keypress
@@ -2318,12 +2497,12 @@ def _menu_loop(stdscr, data: dict):
     except Exception:
         pass
     workspaces = list(data["workspaces"])
-    rows = _menu_rows(workspaces)
+    rows = _menu_rows(workspaces, _custom_modes(data))
     default = data["default"]
     multi = False        # the multiselect for the Gärtner's focus: Space opens it
     checked: list = []
     idx = rows.index(default) if default in rows else 0
-    autostart = bool(default) and bool(workspaces)
+    autostart = bool(default) and bool(workspaces) and usage_halt is None
     interacted = False
     start = time.monotonic()
     exams = _exam_banner_lines() + _conflict_banner_lines() + _course_error_lines(data)   # read once: the menu lives for seconds, not hours
@@ -2352,6 +2531,11 @@ def _menu_loop(stdscr, data: dict):
             for j, (text, severity) in enumerate(exams):
                 _safe_addstr(stdscr, top + 1 + j, 0, text, C[severity])
             top += len(exams) + 2   # banner + its heading + one blank line
+        if usage_halt is not None:
+            _safe_addstr(stdscr, top, 0,
+                         f"  ⚠ Claude-Nutzung bei {usage_halt:.0f} % — kein Autostart, "
+                         f"Sonnet/medium vorgewählt. Enter startet.", C["count"])
+            top += 2
         for label, value, hint in (
             ("Userspace", _MEDIUM_LABELS[medium], "m = wechseln"),
             ("Modell", _model_label(model), "o = wechseln · O = Menü"),
@@ -2378,12 +2562,18 @@ def _menu_loop(stdscr, data: dict):
             elif row == _QUICKIE_SENTINEL:
                 label = "⚡ Quickie — ein kurzes Häppchen" + _quickie_suffix(data)
                 base = C["quickie"]
+            elif row == _CUSTOM_SENTINEL:
+                label = "✎ Eigener Modus — sag, was du willst (z.B. Nachbereitung) …"
+                base = C["tutor"]
+            elif _is_saved_row(row):
+                label = "   ↳ " + _shorten(row[len(_SAVED_PREFIX):], 90)
+                base = C["tutor"]
             else:
                 label = row + progress.get(row, "")
                 base = C["star"] if is_def else C["path"]
             if multi:
                 # Checkbox column; the mode rows are greyed out — they are not selectable.
-                if row in _SENTINELS:
+                if row in _SENTINELS or _is_saved_row(row):
                     base = C["foot"]
                     box = "  "
                 else:
@@ -2401,7 +2591,8 @@ def _menu_loop(stdscr, data: dict):
                          C["foot"])
         else:
             _safe_addstr(stdscr, foot, 0,
-                         "↑/↓ bewegen · Enter starten · Leertaste = Gärtner-Auswahl · m = Userspace · "
+                         "↑/↓ bewegen · Enter starten · p = eigener Auftrag (auf Kurs: nur dieser Kurs) · "
+                         "Leertaste = Gärtner-Auswahl · m = Userspace · "
                          "o/O = Modell · e = Effort · d = Standard · x = löschen · g = Gärtner · q = beenden",
                          C["foot"])
         if autostart and not interacted:
@@ -2429,7 +2620,7 @@ def _menu_loop(stdscr, data: dict):
                 idx = (idx - 1) % len(rows)
             elif ch in (curses.KEY_DOWN, ord("j")):
                 idx = (idx + 1) % len(rows)
-            elif ch == ord(" ") and row not in _SENTINELS:
+            elif ch == ord(" ") and row not in _SENTINELS and not _is_saved_row(row):
                 if row in checked:
                     checked.remove(row)
                 else:
@@ -2442,7 +2633,18 @@ def _menu_loop(stdscr, data: dict):
         if ch == ord(" "):
             # Open the multiselect with the course under the cursor checked.
             multi = True
-            checked = [rows[idx]] if rows[idx] not in _SENTINELS else []
+            checked = ([rows[idx]] if rows[idx] not in _SENTINELS
+                       and not _is_saved_row(rows[idx]) else [])
+        elif ch == ord("p") and workspaces:
+            row = rows[idx]
+            course = row if row in workspaces else None
+            text = _text_input(
+                stdscr, C, "Eigener Modus" + (f" — {Path(course).name}" if course else ""),
+                "Was soll die Session machen? z.B. „Nachbereitung der Vorlesung von heute“, "
+                "„30 min Klausursimulation“, „erklär mir Kapitel 3 nochmal“",
+                row[len(_SAVED_PREFIX):] if _is_saved_row(row) else "")
+            if text:
+                return ("custom", (text, course))
         elif ch in (curses.KEY_UP, ord("k")):
             idx = (idx - 1) % len(rows)
         elif ch in (curses.KEY_DOWN, ord("j")):
@@ -2458,17 +2660,25 @@ def _menu_loop(stdscr, data: dict):
             curr_idx = models_list.index(model) if model in models_list else -1
             model = models_list[(curr_idx + 1) % len(models_list)]
             data["model"] = model  # persisted by the caller
+            data.pop(_GUARD_RESTORE_KEY, None)   # a hand-picked model sticks
         elif ch in (ord("O"), ord("M")):
             full = _available_models(full=True) if ENGINE != "claude" else models_list
             model = _model_selection_menu(stdscr, C, full, model)
             data["model"] = model  # persisted by the caller
+            data.pop(_GUARD_RESTORE_KEY, None)
         elif ch == ord("e"):
             effort = _EFFORTS[(_EFFORTS.index(effort) + 1) % len(_EFFORTS)]
             data["effort"] = effort  # persisted by the caller
+            data.pop(_GUARD_RESTORE_KEY, None)
         elif ch == ord("d"):
-            if rows[idx] != _ADD_SENTINEL:   # the mode rows are valid defaults too
+            if rows[idx] not in (_ADD_SENTINEL, _CUSTOM_SENTINEL) and not _is_saved_row(rows[idx]):
                 default = rows[idx]
                 data["default"] = default  # persisted by the caller
+        elif ch in (ord("x"), curses.KEY_DC) and _is_saved_row(rows[idx]):
+            gone = rows[idx][len(_SAVED_PREFIX):]
+            data["custom_modes"] = [m for m in _custom_modes(data) if m != gone]
+            rows = _menu_rows(workspaces, _custom_modes(data))
+            idx = min(idx, len(rows) - 1)
         elif ch in (ord("x"), curses.KEY_DC):  # delete the highlighted course
             if rows[idx] not in _SENTINELS and _confirm_delete(
                     stdscr, C, rows[idx], data["workspaces"]):
@@ -2477,7 +2687,7 @@ def _menu_loop(stdscr, data: dict):
                     data["default"] = None
                 _ensure_default(data)   # recompute: Begleiter / None
                 workspaces = list(data["workspaces"])
-                rows = _menu_rows(workspaces)
+                rows = _menu_rows(workspaces, _custom_modes(data))
                 default = data["default"]
                 idx = min(idx, len(rows) - 1)  # keep the cursor in range
         elif ch in (curses.KEY_ENTER, 10, 13):
@@ -2487,6 +2697,16 @@ def _menu_loop(stdscr, data: dict):
                 return ("begleiter", None)
             if rows[idx] == _QUICKIE_SENTINEL:
                 return ("quickie", None)
+            if _is_saved_row(rows[idx]):
+                return ("custom", (rows[idx][len(_SAVED_PREFIX):], None))
+            if rows[idx] == _CUSTOM_SENTINEL:
+                text = _text_input(
+                    stdscr, C, "Eigener Modus",
+                    "Was soll die Session machen? z.B. „Nachbereitung der Vorlesung von heute“, "
+                    "„30 min Klausursimulation Chemie“, „erklär mir Kapitel 3 nochmal“")
+                if text:
+                    return ("custom", (text, None))
+                continue
             return ("launch", rows[idx])
 
 
@@ -2503,9 +2723,10 @@ def run_menu() -> int:
             return 1
 
     data = _ensure_default(_load_registry())
+    usage_halt = _apply_usage_guard(data)
     _save_registry(data)
     import curses
-    action, ws = curses.wrapper(_menu_loop, data)
+    action, ws = curses.wrapper(_menu_loop, data, usage_halt)
     _save_registry(data)  # persist any default change made with 'd'
 
     if action == "quit":
@@ -2518,6 +2739,9 @@ def run_menu() -> int:
         return _launch_quickie(data, inline=True)
     if action == "gaertner":
         return _launch_gaertner(data, ws or [], inline=True)
+    if action == "custom":
+        text, course = ws
+        return _launch_custom(data, text, course, inline=True)
     if action == "add":
         return do_add()  # interactive: claude helps decide the location, then --register's it
     return 0
@@ -2564,13 +2788,43 @@ def _do_install_remove(remove: bool, workspace: "str | None" = None,
             args=[ws, "--engine", ENGINE],   # appended to the .desktop Exec / alias
         )]
     else:
-        # Both commands, like bootclaude's variants.
-        metas = [_metadata(entry) for entry in ENTRIES.values()]
+        # Both commands, like bootclaude's variants, with the same course-tree icon.
+        generated = refresh_icon()
+        metas = [_metadata(entry, icon=str(generated)) if generated else _metadata(entry)
+                 for entry in ENTRIES.values()]
 
     for meta in metas:
         installer = ToolInstaller(script_path=__file__, metadata=meta)
         installer.remove() if remove else installer.install()
     return 0
+
+
+def _icon_courses(workspaces: list) -> list:
+    """One entry per course for the launcher icon: Häppchen done, days since last activity."""
+    out = []
+    for w in workspaces:
+        prog = course_progress(w)
+        counts = _haeppchen_counts(w)
+        done = prog[0] if prog else (counts[0] if counts else 0)
+        out.append(course_icon.Course(done, _days_since_activity(w)))
+    return out
+
+
+def _icon_path() -> Path:
+    return _registry_path().with_name("icon.svg")
+
+
+def refresh_icon() -> "Path | None":
+    """Regenerate the launcher icon from the course list; the path, or None on any problem.
+
+    Best effort: the icon is decoration, a failure here must never stop a session."""
+    try:
+        data = _load_registry()
+        course_icon.write_icon(os.path.join(_ICON_DIR, "openstudy.svg"), _icon_path(),
+                               _icon_courses(data.get("workspaces", [])))
+        return _icon_path()
+    except Exception:
+        return None
 
 
 def _main() -> int:
@@ -2595,6 +2849,10 @@ def _main() -> int:
     parser.add_argument("--quickie", action="store_true",
                         help="Quickie: one short, winnable Häppchen (5 min); "
                              "counts towards the streak shown in the menu")
+    parser.add_argument("--auftrag", metavar="TEXT", default=None,
+                        help="Eigener Modus: a session for a free-text Auftrag, e.g. "
+                             "\"Nachbereitung der Vorlesung von heute\"; across all courses, "
+                             "or inside the given workspace")
     parser.add_argument("--gaertner", nargs="*", metavar="PFAD", default=None,
                         help="Gärtner: a maintenance session to clean up, merge or revise "
                              "courses in chat; sees every course, the given paths are its focus")
@@ -2637,6 +2895,8 @@ def _main() -> int:
             _register_workspace(args.workspace)   # a per-workspace icon → also in the menu
         return _do_install_remove(remove=args.remove, workspace=args.workspace,
                                   name=args.name, alias=args.alias)
+    if not (args.print_prompt or args.dry_run or args.remove):
+        refresh_icon()
     if args.list:
         data = _ensure_default(_load_registry())
         _save_registry(data)  # persist the first-use seed so the view matches disk
@@ -2672,6 +2932,16 @@ def _main() -> int:
             print(_assemble_quickie_prompt(data["workspaces"]))
             return 0
         return _launch_quickie(data, inline=False)
+    if args.auftrag:
+        data = _ensure_default(_load_registry())
+        course = _abs_path(args.workspace) if args.workspace else None
+        if not data["workspaces"] and not course:
+            print(f"Noch kein Kurs registriert — run `{_command_name()}` for the menu.")
+            return 1
+        if args.print_prompt:
+            print(_assemble_prompt(course) if course else _assemble_custom_prompt())
+            return 0
+        return _launch_custom(data, args.auftrag, course, inline=False)
     if args.gaertner is not None:
         data = _ensure_default(_load_registry())
         focus = [_abs_path(p) for p in args.gaertner]   # not registered: that is a change to plan

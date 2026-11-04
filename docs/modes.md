@@ -65,6 +65,17 @@ launcher never judges whether you finished. `studyclaude --set-default quickie`
 
 The Quickie never builds a course overview.
 
+## Eigener Modus
+
+The third mode row, **✎ Eigener Modus**, asks for one line of free text, for example
+„Nachbereitung der Vorlesung von heute“ or „30 min Klausursimulation Chemie“. The
+launcher adds no logic of its own. The session gets the text as its `<auftrag>`, plus the time,
+the exams and every dossier, and works out the steps itself. It starts at the
+courses' common root, like the Begleiter. Press `p` on a course row to do the same inside
+that course, with its CLAUDE.md loaded. The last 8 Aufträge are kept in the registry
+(`custom_modes`) and show up as `↳` rows under the mode. Enter starts one again, `p`
+edits it first, and `x` removes it. From the shell, use `--auftrag "TEXT" [WORKSPACE]`.
+
 ## Wochenplan
 
 The Begleiter (in free time) and the Quickie pick a course on their own. To steer that pick by

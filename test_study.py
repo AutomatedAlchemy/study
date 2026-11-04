@@ -51,6 +51,7 @@ def spawns(monkeypatch, tmp_path):
     monkeypatch.delenv("STUDY_MEDIUM", raising=False)
     monkeypatch.delenv("STUDY_EXAMS", raising=False)
     monkeypatch.setenv("CLAUDE_TIER_OVERRIDE", "max")
+    monkeypatch.setattr(m, "_usage_percent", lambda: None)   # no usage request from a test
     monkeypatch.setattr(m.os, "chdir", lambda d: rec.update(cwd=d))
     monkeypatch.setattr(m.os, "execvpe", lambda prog, argv, env: rec["exec"].append(argv))
     monkeypatch.setattr(m.subprocess, "Popen", lambda cmd, **k: rec["popen"].append(cmd))
@@ -135,7 +136,15 @@ def test_registry_state_machine(tmp_path, monkeypatch):
     assert m._unregister_workspace(a) and not m._unregister_workspace(a)
     assert m._ensure_default(m._load_registry())["default"] == m._BEGLEITER_SENTINEL   # falls back
     assert m._menu_rows([a, b]) == [m._BEGLEITER_SENTINEL, m._QUICKIE_SENTINEL,
-                                    a, b, m._ADD_SENTINEL]
+                                    m._CUSTOM_SENTINEL, a, b, m._ADD_SENTINEL]
+    assert m._menu_rows([a], ["Nachbereitung"]) == [
+        m._BEGLEITER_SENTINEL, m._QUICKIE_SENTINEL, m._CUSTOM_SENTINEL,
+        m._SAVED_PREFIX + "Nachbereitung", a, m._ADD_SENTINEL]
+    data = {}
+    for t in ["x", "y", "x"] + [str(i) for i in range(10)]:
+        m._remember_custom(data, t)
+    assert data["custom_modes"][0] == "9" and len(data["custom_modes"]) == m._CUSTOM_KEEP
+    assert "<auftrag>\nNachbereitung\n</auftrag>" in m.opening_message_custom("Nachbereitung", [a])
     # a default that is neither a course nor a known sentinel (retired sentinel
     # from another host, unregistered course) counts as unset — in the menu and
     # for scripts
@@ -754,6 +763,60 @@ def test_menu_countdown_survives_a_window_resize(monkeypatch, tmp_path):
     assert m._menu_loop(screen, data) == ("begleiter", None)
 
 
+# --- usage guard ------------------------------------------------------------------
+
+def test_menu_with_usage_halt_waits_instead_of_autostarting(monkeypatch, tmp_path):
+    """At high usage the countdown never fires: the elapsed clock reads the menu,
+    the key that follows decides. Without the guard this returns the Begleiter."""
+    import collections
+    monkeypatch.setattr(curses, "curs_set", lambda _: None)
+    monkeypatch.setattr(m, "_init_colors", lambda: collections.defaultdict(int))
+    monkeypatch.setattr(m, "_available_models", lambda: ["opus", "sonnet"])
+    monkeypatch.setattr(m, "_exam_banner_lines", lambda: [])
+    monkeypatch.setattr(m.time, "monotonic", lambda: 999.0)
+    data = {"workspaces": [str(tmp_path)], "default": m._BEGLEITER_SENTINEL}
+    screen = MockCursesScreen([-1, -1, ord("q")])
+    assert m._menu_loop(screen, data, 95.0) == ("quit", None)
+    assert any("95 %" in text for _, _, text, _ in screen.rendered_lines)
+
+
+def test_usage_guard_picks_sonnet_medium_and_restores_later(monkeypatch):
+    data = {"model": "opus", "effort": "high"}
+    monkeypatch.setattr(m, "_usage_percent", lambda: 92.0)
+    assert m._apply_usage_guard(data) == 92.0
+    assert (data["model"], data["effort"]) == ("sonnet", "medium")
+    assert m._apply_usage_guard(data) == 92.0   # a second halted start keeps the original
+    assert data[m._GUARD_RESTORE_KEY] == {"model": "opus", "effort": "high"}
+    monkeypatch.setattr(m, "_usage_percent", lambda: 40.0)
+    assert m._apply_usage_guard(data) is None
+    assert (data["model"], data["effort"]) == ("opus", "high")
+    assert m._GUARD_RESTORE_KEY not in data
+
+
+def test_usage_guard_stays_out_when_usage_is_unknown_or_engine_is_opencode(monkeypatch):
+    data = {"model": "opus", "effort": "high"}
+    monkeypatch.setattr(m, "_usage_percent", lambda: None)
+    assert m._apply_usage_guard(data) is None
+    monkeypatch.setattr(m, "_usage_percent", lambda: 99.0)
+    monkeypatch.setattr(m, "ENGINE", "opencode")
+    assert m._apply_usage_guard(data) is None
+    assert (data["model"], data["effort"]) == ("opus", "high")
+
+
+def test_hand_picked_effort_drops_the_restore_note(monkeypatch, tmp_path):
+    import collections
+    monkeypatch.setattr(curses, "curs_set", lambda _: None)
+    monkeypatch.setattr(m, "_init_colors", lambda: collections.defaultdict(int))
+    monkeypatch.setattr(m, "_available_models", lambda: ["opus", "sonnet"])
+    monkeypatch.setattr(m, "_exam_banner_lines", lambda: [])
+    data = {"workspaces": [str(tmp_path)], "default": m._BEGLEITER_SENTINEL,
+            "model": "sonnet", "effort": "medium",
+            m._GUARD_RESTORE_KEY: {"model": "opus", "effort": "high"}}
+    screen = MockCursesScreen([ord("e"), ord("q")])
+    m._menu_loop(screen, data, 95.0)
+    assert m._GUARD_RESTORE_KEY not in data and data["effort"] == "high"
+
+
 # --- one tool, two engines -------------------------------------------------------
 
 def test_advertise_lists_both_commands(monkeypatch, capsys):
@@ -991,6 +1054,12 @@ def test_install_writes_both_commands(installer):
     metas = [meta for _, meta in installer.calls]
     assert [x.alias for x in metas] == ["studyclaude", "openstudy"]
     assert [x.args for x in metas] == [["--engine", "claude"], ["--engine", "opencode"]]
+
+
+def test_install_gives_both_commands_the_course_tree_icon(installer, tmp_path):
+    m._save_registry({"default": None, "workspaces": []})
+    assert m._do_install_remove(remove=False) == 0
+    assert [x.icon for _, x in installer.calls] == [str(tmp_path / "icon.svg")] * 2
 
 
 def test_remove_removes_both_commands(installer):
@@ -1376,3 +1445,19 @@ def test_board_template_has_the_review_wait_and_key_rules():
     assert "nur Felder\n  mit Schlüssel" in text or "zählt nur Felder" in text
     assert "ganze** Aufgabe fehlerfrei" in text and "ersten Satz" in text
     assert "Freitext-Antworten" in text and "ohne Schlüssel" in text
+
+
+# ---- launcher icon --------------------------------------------------------
+def test_refresh_icon_writes_next_to_the_registry_and_counts_courses(tmp_path):
+    ws = tmp_path / "kurs"
+    ws.mkdir()
+    (ws / "todo.md").write_text("Fortschritt: 9/20 Häppchen\n", encoding="utf-8")
+    m._save_registry({"default": None, "workspaces": [str(ws)]})
+    path = m.refresh_icon()
+    assert path == tmp_path / "icon.svg" and path.exists()
+    assert path.read_text(encoding="utf-8").count('r="6" fill=') == 1
+
+
+def test_refresh_icon_never_raises(monkeypatch):
+    monkeypatch.setattr(m.course_icon, "write_icon", lambda *a, **k: 1 / 0)
+    assert m.refresh_icon() is None
