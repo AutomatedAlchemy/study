@@ -2,6 +2,8 @@
 data/registry.json
 data/wochenplan.md
 data/*.sync-conflict-*
+data/icon.svg
+data/*.pre-courses
 
 __pycache__/
 *.py[cod]
