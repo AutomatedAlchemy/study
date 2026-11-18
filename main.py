@@ -475,6 +475,7 @@ def _current_effort() -> str:
 def _set_model(model: str) -> str:
     data = _load_registry()
     data["model"] = model
+    data.pop(_GUARD_RESTORE_KEY, None)   # a hand-set pick sticks
     _save_registry(data)
     return model
 
@@ -482,6 +483,7 @@ def _set_model(model: str) -> str:
 def _set_effort(effort: str) -> str:
     data = _load_registry()
     data["effort"] = effort
+    data.pop(_GUARD_RESTORE_KEY, None)   # a hand-set pick sticks
     _save_registry(data)
     return effort
 

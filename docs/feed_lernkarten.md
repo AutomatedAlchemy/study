@@ -1,5 +1,8 @@
 # Lernkarten im Scroller-Feed
 
+> Stand: Entwurf und Vertrag. Der Launcher von studyclaude setzt ihn noch nicht um: `--set-feed`,
+> `STUDY_FEED_DIR` und der Block `<feed_lernkarten>` unten sind geplant und im Code nicht vorhanden.
+
 Vertrag zwischen den Lern-Sessions von studyclaude (schreiben Karten, lesen Antworten) und
 GifScroll (ein täglicher Job nimmt Karten auf, die App auf dem Handy fragt ab und
 exportiert Antworten). Angelegt 2026-11-09 nach Wahl des Users: Transport über den

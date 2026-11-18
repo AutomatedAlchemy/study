@@ -793,6 +793,18 @@ def test_usage_guard_picks_sonnet_medium_and_restores_later(monkeypatch):
     assert m._GUARD_RESTORE_KEY not in data
 
 
+def test_set_model_and_effort_drop_the_guard_restore_note(monkeypatch):
+    data = {"model": "sonnet", "effort": "medium",
+            m._GUARD_RESTORE_KEY: {"model": "opus", "effort": "high"}}
+    monkeypatch.setattr(m, "_load_registry", lambda: data)
+    monkeypatch.setattr(m, "_save_registry", lambda d: None)
+    m._set_model("fable")
+    assert m._GUARD_RESTORE_KEY not in data and data["model"] == "fable"
+    data[m._GUARD_RESTORE_KEY] = {"model": "opus", "effort": "high"}
+    m._set_effort("low")
+    assert m._GUARD_RESTORE_KEY not in data and data["effort"] == "low"
+
+
 def test_usage_guard_stays_out_when_usage_is_unknown_or_engine_is_opencode(monkeypatch):
     data = {"model": "opus", "effort": "high"}
     monkeypatch.setattr(m, "_usage_percent", lambda: None)

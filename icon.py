@@ -22,6 +22,7 @@ GOLD, YELLOW, PINK, CREAM = "#ffb347", "#ffd166", "#ff4f8b", "#fff3d6"
 STALE = "#9a7a8c"
 STALE_DAYS = 14
 MAX_TWIGS = 3
+TWIG_R = 3.2
 _COLOURS = (PINK, YELLOW, PINK, YELLOW)
 
 _MARKED = re.compile(r"<!--tree-->.*?<!--/tree-->", re.DOTALL)
@@ -102,7 +103,7 @@ def tree_svg(courses: "Iterable[Course]") -> str:
             if _wall(ty) - abs(tx - CX) < 12:
                 continue
             twig_lines.append(f'<path d="M{px:.1f} {py:.1f} L{tx:.1f} {ty:.1f}" stroke="{colour}"/>')
-            nodes.append(f'<circle cx="{tx:.1f}" cy="{ty:.1f}" r="3.2" fill="{colour}"/>')
+            nodes.append(f'<circle cx="{tx:.1f}" cy="{ty:.1f}" r="{TWIG_R}" fill="{colour}"/>')
     return ("<!--tree-->"
             '<g fill="none" stroke-width="7" stroke-linecap="round" stroke-linejoin="round">'
             + "".join(lines) + "</g>"

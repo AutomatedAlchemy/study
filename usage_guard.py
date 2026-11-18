@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 import tempfile
 import time
 import urllib.request
@@ -65,6 +66,11 @@ def _write_credentials(path: Path, data: dict) -> None:
         raise
 
 
+def _writable(path: Path) -> bool:
+    """True when a rotated credentials file could be replaced in place."""
+    return os.access(path, os.W_OK) and os.access(path.parent, os.W_OK | os.X_OK)
+
+
 def access_token(now_ms: "int | None" = None) -> "str | None":
     """A valid access token, refreshed and saved first when the stored one expired."""
     path = _credentials_path()
@@ -78,6 +84,10 @@ def access_token(now_ms: "int | None" = None) -> "str | None":
         return oauth.get("accessToken")
     refresh = oauth.get("refreshToken")
     if not refresh:
+        return None
+    if not _writable(path):
+        # The refresh rotates the token. Without a way to save the new one, the stored
+        # one would go stale, so do not refresh: usage stays unknown.
         return None
     payload = {"grant_type": "refresh_token", "refresh_token": refresh, "client_id": CLIENT_ID}
     if oauth.get("scopes"):
@@ -96,8 +106,10 @@ def access_token(now_ms: "int | None" = None) -> "str | None":
         oauth["expiresAt"] = now_ms + int(fresh["expires_in"]) * 1000
     try:
         _write_credentials(path, data)
-    except OSError:
-        pass   # the token still works for this call
+    except OSError as err:
+        print(f"warning: could not save the refreshed Claude login to {path} ({err}). "
+              "The stored refresh token is probably out of date, so Claude Code may need "
+              "a fresh login (`claude` then `/login`).", file=sys.stderr)
     return token
 
 

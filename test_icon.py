@@ -35,7 +35,9 @@ def test_more_done_means_more_twigs_with_a_ceiling():
     assert [icon.twigs_for(d) for d in (0, 1, 4, 9, 16, 1000)] == [0, 1, 2, 3, 3, icon.MAX_TWIGS]
     few = _svg([Course(1)])
     many = _svg([Course(100)])
-    assert _count(many, r'stroke-width="4".*?</g>') == _count(few, r'stroke-width="4".*?</g>')
+    twig = rf'r="{icon.TWIG_R}"'
+    assert _count(few, twig) == 1
+    assert _count(_svg([Course(1000)]), twig) == _count(many, twig) == icon.MAX_TWIGS
     assert many.count("<path") > few.count("<path")
 
 
@@ -47,7 +49,9 @@ def test_idle_course_loses_its_colour():
 
 def test_nothing_leaves_the_glass():
     svg = _svg([Course(50, 0)] * icon.MAX_COURSES)
-    for x, y in re.findall(r'<circle cx="([\d.]+)" cy="([\d.]+)" r="3.4"', svg):
+    twigs = re.findall(rf'<circle cx="([\d.]+)" cy="([\d.]+)" r="{re.escape(str(icon.TWIG_R))}"', svg)
+    assert twigs
+    for x, y in twigs:
         assert abs(float(x) - icon.CX) < icon._wall(float(y)), (x, y)
 
 

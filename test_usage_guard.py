@@ -70,3 +70,29 @@ def test_a_failed_refresh_leaves_the_file_alone(tmp_path, monkeypatch):
 def test_no_credentials_means_unknown(tmp_path, monkeypatch):
     monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path))
     assert ug.current_percent() is None
+
+
+def test_no_refresh_when_the_credentials_cannot_be_written_back(tmp_path, monkeypatch):
+    path = _creds(tmp_path, monkeypatch, accessToken="old", refreshToken="r1", expiresAt=500)
+    before = path.read_text()
+    monkeypatch.setattr(ug, "_writable", lambda p: False)
+    monkeypatch.setattr(ug, "_post_json", lambda *a: (_ for _ in ()).throw(AssertionError("refresh")))
+    assert ug.access_token(now_ms=1_000) is None
+    assert path.read_text() == before
+
+
+def test_a_failed_write_back_warns_on_stderr_and_still_returns_the_token(tmp_path, monkeypatch, capsys):
+    path = _creds(tmp_path, monkeypatch, accessToken="old", refreshToken="r1", expiresAt=500)
+    monkeypatch.setattr(ug, "_post_json", lambda *a: {"access_token": "new", "refresh_token": "r2",
+                                                      "expires_in": 3600})
+    monkeypatch.setattr(ug, "_write_credentials", lambda *a: (_ for _ in ()).throw(OSError("disk full")))
+    assert ug.access_token(now_ms=1_000) == "new"
+    err = capsys.readouterr().err
+    assert str(path) in err and "login" in err and "disk full" in err
+
+
+def test_writable_checks_file_and_directory(tmp_path):
+    f = tmp_path / ".credentials.json"
+    f.write_text("{}")
+    assert ug._writable(f)
+    assert not ug._writable(tmp_path / "missing" / ".credentials.json")
