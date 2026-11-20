@@ -249,6 +249,7 @@ def test_validate_result():
     assert wv.validate_result({"termine": [good_item()]}, ["x"]) == []
     assert wv.validate_result(None, ["x"])
     assert wv.validate_result({"termine": []}, ["x"])                          # missing id
+    assert wv.validate_result({"termine": [dict(good_item(), termin=["x"])]}, ["x"])   # no crash on a list
     bad = good_item(); bad["bild"] = "kein Bild"
     assert wv.validate_result({"termine": [bad]}, ["x"])
     bad = good_item(); bad["karten"] = []

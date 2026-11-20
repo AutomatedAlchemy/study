@@ -1216,11 +1216,12 @@ def validate_result(data, expected_ids, min_cards: int = 1) -> list:
             errs.append(f"{where}: kein Objekt")
             continue
         tid = item.get("termin")
-        if tid not in expected_ids:
-            errs.append(f"{where}: unbekannter Termin {tid!r}")
+        if not isinstance(tid, str) or tid not in expected_ids:   # model output: may be a list or an object
+            errs.append(f"{where}: unbekannter Termin {tid!r}"[:200])
         elif tid in seen:
             errs.append(f"{where}: Termin {tid} doppelt")
-        seen.add(tid)
+        else:
+            seen.add(tid)
         if item.get("aktion") not in (None, "gebaut", "angehaengt", "geaendert", "uebersprungen"):
             errs.append(f"{where}: aktion ungültig")
             continue
