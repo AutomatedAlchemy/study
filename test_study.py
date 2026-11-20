@@ -1596,8 +1596,9 @@ def test_daily_mode_launch_and_done(tmp_path, monkeypatch, spawns, capsys):
 
 
 def test_mode_builder_asks_first_and_the_session_saves(tmp_path, monkeypatch, spawns, capsys):
-    """A mode is created in a session that proposes and asks, not typed into the
-    menu: the opening carries the interview and the save command, no Auftrag;
+    """A mode is created in a session that asks, not typed into the menu: the user
+    answers one open question first, proposals and pick-lists come after it; the
+    opening carries that interview and the save command, no Auftrag;
     `--save-mode` takes the instruction from stdin and keeps a replaced mode's
     daily state; `s` on a saved row revises that mode."""
     a, b = _courses(tmp_path, "Physik", "Chemie")
@@ -1607,8 +1608,11 @@ def test_mode_builder_asks_first_and_the_session_saves(tmp_path, monkeypatch, sp
     m._set_mode_field(data, "Tag", daily=True)
     m._save_registry(data)
     opening = m.opening_message_mode_builder(data)
-    assert "Schlag mir dann drei oder vier Modi vor" in opening and "<auftrag>" not in opening
-    assert "Antworten zur Auswahl" in opening and "den es schon gibt" in opening
+    assert "<auftrag>" not in opening
+    step1, step2 = opening.split("\n2. ")[0], opening.split("\n2. ")[1].split("\n3. ")[0]
+    assert "frag mich als normalen Text im Chat" in step1 and "Schlag hier noch nichts vor" in step1
+    assert "Vorschläge" not in step1 and "Geh von meiner Antwort aus" in step2
+    assert "Vorschläge" in step2 and "Antworten zur Auswahl" in step2
     assert "--save-mode 'NAME' <<'ANLEITUNG'" in opening and "„Tag“ (alle Kurse)" in opening
     assert f"### Physik — {a}" in opening                    # the path a course mode needs
     bound = m.opening_message_mode_builder(data, a)
@@ -1616,6 +1620,7 @@ def test_mode_builder_asks_first_and_the_session_saves(tmp_path, monkeypatch, sp
     assert f"### Physik — {a}" in bound and "### Chemie" not in bound   # this course's state only
     revise = m.opening_message_mode_builder(data, revise="Tag")
     assert "Ich will den Modus „Tag“ ändern" in revise and "--save-mode 'NAME' --replaces Tag <<" in revise
+    assert "Schlag hier noch nichts vor" in revise.split("\n2. ")[0]
     assert "legt der User einen eigenen Modus an" in m._assemble_custom_prompt(building=True)
     assert "<auftrag>" in m._assemble_custom_prompt()
     m._launch_mode_builder(data, None, inline=True)

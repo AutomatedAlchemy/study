@@ -68,12 +68,14 @@ The Quickie never builds a course overview.
 ## Eigener Modus
 
 The third mode row, **✎ Eigener Modus anlegen**, creates a mode of your own. You do not type
-the mode into the menu. Enter starts a session in which the tutor first proposes three or four
-modes that fit your situation (your courses and their state, the coming exams, the medium, the
-modes you already have) and asks which one fits or what you want instead. It follows up on what
-is still open (goal, one course or all, the steps, the duration, the medium, what should exist
-at the end), each question with a few answers to pick from, then shows you a short name and a
-written-out instruction. After your OK it saves both itself with
+the mode into the menu. Enter starts a session in which the tutor first asks, as plain chat
+text, what you want to do in this mode and how a session should run, with an example or two of
+an answer. You write freely. Only then does it make proposals where your answer leaves the
+direction open (drawn from your courses and their state, the coming exams, the medium, the
+modes you already have) and follow up on what is still open (goal, one course or all, the
+steps, the duration, the medium, what should exist at the end), each follow-up with a few
+answers to pick from. Then it shows you a short name and a written-out instruction. After your
+OK it saves both itself with
 `studyclaude --save-mode NAME` (the instruction on stdin) as a named mode (`saved_modes` in the
 registry) and offers to start it right away. The session starts at the courses' common root,
 like the Begleiter. `s` on a course row does the same inside that course and binds the mode to
@@ -84,7 +86,7 @@ Saved modes show up as `↳ Name` rows under the mode row, with the course name 
 one. Enter starts one: the session gets the instruction as its `<auftrag>`, plus the time, the
 exams and every dossier. `p` starts it once with one added line („heute nur 20 min“), and `x`
 removes it. `s` on a `↳` row starts the same interview to revise that mode: the tutor says what
-the mode does now, proposes changes, and saves the result in place, under the old or a new name
+the mode does now, asks what should change, and saves the result in place, under the old or a new name
 (`--save-mode NAME --replaces OLD`). A mode whose course is no longer registered runs across
 all courses.
 

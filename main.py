@@ -2248,9 +2248,10 @@ def _launch_begleiter(data: dict, *, inline: bool) -> int:
 # `--save-mode NAME` (instruction on stdin). That is a named mode
 # (`saved_modes` in the registry: name, text, course or None) and shows as a
 # menu row. `s` on a saved row starts the same session to revise that mode
-# (`--save-mode NEW --replaces OLD`). The interview opens with proposals drawn
-# from the dossiers, the exams and the existing modes, and offers answers to
-# pick from (user, 2026-11-20: an open "what do you want?" was too little).
+# (`--save-mode NEW --replaces OLD`). The interview opens with one open question
+# in chat, with an example or two of an answer; the user writes freely first.
+# Proposals drawn from the dossiers, the exams and the existing modes, and
+# answers to pick from, come only after that (user, 2026-11-20).
 #
 # `p` starts a one-off session for a typed Auftrag ("Nachbereitung der
 # Vorlesung von heute") without keeping it: across all courses, or inside one
@@ -2483,26 +2484,29 @@ def _mode_builder_head(data: dict, course: "str | None" = None,
               "Klausuren, das Arbeitsmedium, die Uhrzeit" if course else
               "die Kurse und ihr Stand in den Dossiers, die anstehenden Klausuren, das "
               "Arbeitsmedium, die Uhrzeit")
+    # The user speaks first, in free text. Proposals and pick-lists come only
+    # after that answer (user, 2026-11-20).
+    first = ("Schlag hier noch nichts vor und nimm dafür kein Werkzeug für Auswahlfragen: "
+             "ich will zuerst frei schreiben. Warte auf meine Antwort und bau vorher nichts.\n")
     if revise:
         intro = (
             f"Eigenen Modus überarbeiten. Ich will den Modus „{revise}“ ändern, er steht "
             "unten in <modi>. Was sich ändern soll, steht noch nicht fest: nimm nichts an, "
             "klär es mit mir. Der Ablauf:\n"
-            "1. Begrüß mich in einem Satz und sag in höchstens drei Zeilen, was der Modus "
-            "jetzt tut. Schlag mir dann zwei oder drei Änderungen vor, die zu meiner Lage "
-            f"passen, jede in einem Satz. Nimm sie aus dem, was unten steht: {source}. Frag "
-            "danach, welche ich will oder was ich stattdessen ändern will. Bau vorher nichts.\n"
+            "1. Begrüß mich in einem Satz, sag in höchstens drei Zeilen, was der Modus "
+            "jetzt tut, und frag mich als normalen Text im Chat, was sich ändern soll. "
+            + first
         )
     else:
         intro = (
             "Eigener Modus anlegen. Ich will eine feste Art von Session einrichten, die ich "
             "später über eine eigene Menüzeile starte. Was sie tun soll, steht noch nicht "
             "fest: nimm nichts an, klär es mit mir. Der Ablauf:\n"
-            "1. Begrüß mich in einem Satz. Schlag mir dann drei oder vier Modi vor, die zu "
-            "meiner Lage passen, jeden mit einem Namen und einem Satz zum Ablauf. Nimm sie "
-            f"aus dem, was unten steht: {source}. Schlag keinen Modus vor, den es schon "
-            "gibt. Frag danach, welcher passt, was ich daran ändern will oder was ich "
-            "stattdessen will. Bau vorher nichts.\n"
+            "1. Begrüß mich in einem Satz und frag mich als normalen Text im Chat, was ich "
+            "in diesem Modus machen will und wie eine Session ablaufen soll. Häng in "
+            "Klammern ein oder zwei kurze Beispiele an, was man darauf antworten kann, "
+            "passend zu meinen Kursen unten. Das sind Beispiele für eine Antwort, keine "
+            "Auswahl. " + first
         )
     scope = "" if course else "ob er in einem Kurs oder über alle Kurse läuft, "
     gets = ("Die Uhrzeit bekommt sie beim Start dazu, und die CLAUDE.md des Kurses ist geladen"
@@ -2516,14 +2520,17 @@ def _mode_builder_head(data: dict, course: "str | None" = None,
               "wieder ein, ein anderer Name benennt den Modus um.\n" if revise else "")
     return (
         intro
-        + "2. Hak nach, solange etwas offen ist, das eine spätere Session nicht selbst "
+        + "2. Geh von meiner Antwort aus. Lässt sie die Richtung offen, mach zwei oder drei "
+        "Vorschläge dazu, jeden mit einem Satz zum Ablauf. Nimm sie aus dem, was unten "
+        f"steht: {source}. Gibt es so einen Modus schon, sag es mir. Hak nach, solange "
+        "etwas offen ist, das eine spätere Session nicht selbst "
         f"entscheiden kann: das Ziel, {scope}die Schritte in ihrer Reihenfolge, die Dauer, "
-        "das Arbeitsmedium, was am Ende vorliegen soll. Gib zu jeder Frage zwei bis vier "
-        "Antworten zur Auswahl, die zu meiner Lage passen, deine Empfehlung zuerst, zum "
-        "Beispiel bei der Dauer 15, 30 oder 60 Minuten. Hast du ein Werkzeug für "
-        "Auswahlfragen, stell die Fragen damit. Ich kann immer frei antworten. Höchstens "
-        "drei Fragen auf einmal, und frag nichts, was ich schon gesagt habe. Ist nichts "
-        "mehr offen, geh weiter.\n"
+        "das Arbeitsmedium, was am Ende vorliegen soll. Gib zu jeder Rückfrage zwei bis vier "
+        "Antworten zur Auswahl, die zu meiner Antwort und meiner Lage passen, deine "
+        "Empfehlung zuerst, zum Beispiel bei der Dauer 15, 30 oder 60 Minuten. Hast du ein "
+        "Werkzeug für Auswahlfragen, stell diese Rückfragen damit. Ich kann immer frei "
+        "antworten. Höchstens drei Fragen auf einmal, und frag nichts, was ich schon gesagt "
+        "habe. Ist nichts mehr offen, geh weiter.\n"
         "3. Schreib einen kurzen Namen für die Menüzeile (höchstens 40 Zeichen) und eine "
         "Anleitung. Die Anleitung bekommt später eine neue Session als ihren Auftrag, und "
         "sie kennt dieses Gespräch nicht: schreib sie in der Du-Form an diese Session, mit "
