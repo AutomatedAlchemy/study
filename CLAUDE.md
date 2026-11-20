@@ -267,6 +267,25 @@ opening's counter line are the only consumers. The sentinel is a valid
 `default` (`d`, `--set-default quickie`) and never leaks out of
 `_default_workspace`. `_SENTINELS` is the single list of menu sentinels.
 
+## Eigener Modus: the session asks, the launcher saves
+
+A saved mode (`saved_modes` in the registry: name, text, course or None, plus the daily
+fields) is created in a session, not typed into the menu (user, 2026-11-20). The mode row
+and `s` on a non-mode row return `("mode_new", course)`; `_launch_mode_builder` starts a
+session whose opening (`_mode_builder_head`) is the interview: ask what the mode is for and
+how it should run, follow up on what a later session could not decide itself, write a name
+and an instruction for a session that does not know the conversation, get the OK, save.
+The session saves with `--save-mode NAME [WORKSPACE]`, the instruction on stdin
+(`_save_mode_cli`), because a multi-line text in an argv breaks on quoting. A same name
+replaces the mode and keeps its daily state; the opening lists the existing modes so the
+interview can revise one. The builder gets the same context as a custom session (time,
+exams, dossiers), so it can run the new mode in the same session.
+
+What the interview asks is in `_mode_builder_head` only. `s` on a `↳` row is still the
+manual editor for text and name, and `p` is the one-off Auftrag without a saved mode
+(`--auftrag`). `--new-mode` does not honour `--dry-run` (neither does `--auftrag`): it
+launches.
+
 ## Gärtner: maintenance by chat, plan before change
 
 `g` in the menu (and `--gaertner [PFAD…]`) routes to `_launch_gaertner`: one

@@ -67,21 +67,28 @@ The Quickie never builds a course overview.
 
 ## Eigener Modus
 
-The third mode row, **✎ Eigener Modus**, asks for one line of free text, for example
-„Nachbereitung der Vorlesung von heute“ or „30 min Klausursimulation Chemie“. The
-launcher adds no logic of its own. The session gets the text as its `<auftrag>`, plus the time,
-the exams and every dossier, and works out the steps itself. It starts at the
-courses' common root, like the Begleiter. Press `p` on a course row to do the same inside
-that course, with its CLAUDE.md loaded. From the shell, use `--auftrag "TEXT" [WORKSPACE]`.
+The third mode row, **✎ Eigener Modus anlegen**, creates a mode of your own. You do not type
+the mode into the menu. Enter starts a session in which the tutor asks what you want to do in
+this mode and how it should run. It follows up on what is still open (goal, one course or all,
+the steps, the duration, the medium, what should exist at the end), then shows you a short name
+and a written-out instruction. After your OK it saves both itself with
+`studyclaude --save-mode NAME` (the instruction on stdin) as a named mode (`saved_modes` in the
+registry) and offers to start it right away. The session starts at the courses' common root,
+like the Begleiter. `s` on a course row does the same inside that course and binds the mode to
+it, `s` on any other row is the same as the mode row. From the shell, use
+`--new-mode [WORKSPACE]`.
 
-An Auftrag runs once and is not kept. To keep one, press `s`: it asks for the Auftrag and
-a short name and saves both as a named mode (`saved_modes` in the registry) without
-starting it. `s` on a course row binds the mode to that course. On any other row the mode
-runs across all courses and the prompt is prefilled with the last Auftrag you started
-(`custom_last`). Saved modes show up as `↳ Name` rows under the mode, with the course name
-when they have one. Enter starts one, `p` starts it once with an edited text, `s` changes
-its text or name, and `x` removes it. A mode with the same name is replaced. A mode whose
-course is no longer registered runs across all courses.
+Saved modes show up as `↳ Name` rows under the mode row, with the course name when they have
+one. Enter starts one: the session gets the instruction as its `<auftrag>`, plus the time, the
+exams and every dossier. `p` starts it once with an edited text, `s` changes its text or name
+by hand, and `x` removes it. A mode with the same name is replaced, so the interview can also
+revise an existing mode: it sees the modes you already have. A mode whose course is no longer
+registered runs across all courses.
+
+For a one-off session without a saved mode, press `p` and type one line, for example
+„Nachbereitung der Vorlesung von heute“ or „30 min Klausursimulation Chemie“. On a course row
+it runs inside that course, with its CLAUDE.md loaded, otherwise across all courses. The text
+is not kept. From the shell, use `--auftrag "TEXT" [WORKSPACE]`.
 
 `d` on a `↳` row makes the mode daily. A daily mode that has not been reported done today
 is the menu's default instead of the stored one: the cursor starts on it, the row says

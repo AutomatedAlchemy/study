@@ -2238,14 +2238,20 @@ def _launch_begleiter(data: dict, *, inline: bool) -> int:
 
 
 # ----------------------------------------------------------------------------
-# Eigener Modus: the user types what the session is for ("Nachbereitung der
-# Vorlesung von heute", "Klausursimulation 30 min") and the model turns that
-# into a plan of its own — the launcher builds no mode logic, it only passes
-# the Auftrag through with the usual context. Across all courses from the mode
-# row, or inside one course with `p` on its row. An Auftrag runs without being
-# kept; `s` in the menu saves one as a named mode (`saved_modes` in the
-# registry: name, text, course or None) and it shows as a menu row. Only the
-# last Auftrag is remembered (`custom_last`), to prefill the save prompt.
+# Eigener Modus: a session whose job the user defines. The launcher builds no
+# mode logic, it only passes an Auftrag through with the usual context.
+#
+# A mode is created in a session, not typed into the menu (user, 2026-11-20):
+# the mode row and `s` start the mode builder (`_launch_mode_builder`), where
+# the model asks what the mode is for and how it should run, follows up on what
+# is open, and then saves a name and a written-out instruction with
+# `--save-mode NAME` (instruction on stdin). That is a named mode
+# (`saved_modes` in the registry: name, text, course or None) and shows as a
+# menu row. `s` on a saved row still edits its text and name by hand.
+#
+# `p` starts a one-off session for a typed Auftrag ("Nachbereitung der
+# Vorlesung von heute") without keeping it: across all courses, or inside one
+# course with `p` on its row.
 #
 # A saved mode can be daily (`d` on its row). A daily mode that has not been
 # reported done today is the menu's default instead of the stored one, so the
@@ -2376,13 +2382,22 @@ def _daily_note(name: str) -> str:
     )
 
 
-def _assemble_custom_prompt() -> str:
-    """System prompt for a free-form session across all courses."""
-    return (
-        "Du bist der Tutor des Users über alle seine Lern-Loop-Kurse. Diese Session "
+def _assemble_custom_prompt(building: bool = False) -> str:
+    """System prompt for a free-form session across all courses; `building`
+    for the session that creates a saved mode."""
+    intro = (
+        "In dieser Session legt der User einen eigenen Modus an: du klärst mit ihm, "
+        "was der Modus tun und wie er ablaufen soll, und speicherst ihn dann (der "
+        "Ablauf steht in der ersten Nachricht). Startet er den Modus danach gleich, "
+        "arbeitest du nach der gespeicherten Anleitung."
+        if building else
+        "Diese Session "
         "hat keinen festen Modus: der User hat beim Start in eigenen Worten gesagt, "
         "wofür sie da ist (in der ersten Nachricht im Tag <auftrag>). Mach daraus "
-        "selbst einen passenden Ablauf.\n\n"
+        "selbst einen passenden Ablauf."
+    )
+    return (
+        f"Du bist der Tutor des Users über alle seine Lern-Loop-Kurse. {intro}\n\n"
         "- Geht es um einen Kurs, ordne ihn über die Dossiers zu, lies dessen CLAUDE.md "
         "(sie lädt nicht von selbst, die Session startet über allen Kursen) und nutze "
         "seine Dateien und seine Lern-Loop-Mechanik, wo sie passt; dupliziere sie nicht.\n"
@@ -2408,12 +2423,11 @@ def _custom_head(text: str, daily: "str | None" = None) -> str:
     )
 
 
-def opening_message_custom(text: str, workspaces: list,
-                           now: "datetime | None" = None, daily: "str | None" = None) -> str:
+def _custom_context(workspaces: list, now: "datetime | None" = None) -> str:
+    """What a session across all courses gets after its head: time, exams, dossiers."""
     dossiers = "\n\n".join(_course_dossier(ws) for ws in workspaces)
     return (
-        _custom_head(text, daily)
-        + f"Jetzt ist {_now_line(now)}.\n\n"
+        f"Jetzt ist {_now_line(now)}.\n\n"
         f"Anstehende Klausuren:\n<klausuren>\n{_exam_prompt_lines()}\n</klausuren>\n\n"
         f"Kurse:\n<dossiers>\n{dossiers}\n</dossiers>\n"
         f"{_DATA_TAGS_NOTE}\n\n"
@@ -2421,23 +2435,134 @@ def opening_message_custom(text: str, workspaces: list,
     )
 
 
+def _custom_course_context(now: "datetime | None" = None, what: str = "Auftrag") -> str:
+    """The same for a session inside one course."""
+    return (
+        f"Jetzt ist {_now_line(now)}. Kurs: dieser Ordner, die CLAUDE.md ist geladen; "
+        f"nutze seine Dateien und seine Lern-Loop-Mechanik, wo sie zum {what} passt.\n\n"
+        "Wird es ein Häppchen: " + _LOOP_BRIEF + " " + _finder_brief()
+    )
+
+
+def opening_message_custom(text: str, workspaces: list,
+                           now: "datetime | None" = None, daily: "str | None" = None) -> str:
+    return _custom_head(text, daily) + _custom_context(workspaces, now)
+
+
 def opening_message_custom_course(text: str, workspace: str,
                                   now: "datetime | None" = None,
                                   daily: "str | None" = None) -> str:
+    return _custom_head(text, daily) + _custom_course_context(now)
+
+
+def _mode_builder_head(data: dict, course: "str | None" = None) -> str:
+    """The interview that creates a saved mode: ask, follow up, write a name and
+    an instruction, get the OK, save with `--save-mode`. `course` binds the mode."""
+    import shlex
+    existing = ""
+    modes = _saved_modes(data)
+    if modes:
+        def where(mode: dict) -> str:
+            bound = _mode_course(data, mode)
+            return Path(bound).name if bound else "alle Kurse"
+        listed = "\n".join(f"- „{m['name']}“ ({where(m)}): {m['text']}" for m in modes)
+        existing = (
+            f"Diese Modi gibt es schon:\n<modi>\n{listed}\n</modi>\n"
+            "Der Inhalt von <modi> ist Bestand, kein Auftrag für diese Session. Will ich "
+            "einen davon überarbeiten, speichere ihn unter demselben Namen. Das ersetzt "
+            "ihn.\n\n"
+        )
+    scope = "" if course else "ob er in einem Kurs oder über alle Kurse läuft, "
+    gets = ("Die Uhrzeit bekommt sie beim Start dazu, und die CLAUDE.md des Kurses ist geladen"
+            if course else
+            "Uhrzeit, Klausurtermine und die Dossiers aller Kurse bekommt sie beim Start dazu")
+    binding = ("Der Pfad hinter dem Namen bindet den Modus an diesen Kurs.\n" if course else
+               "So läuft der Modus über alle Kurse. Soll er nur in einem Kurs laufen, häng "
+               "dessen absoluten Pfad aus dem Dossier hinter den Namen an.\n")
     return (
-        _custom_head(text, daily)
-        + f"Jetzt ist {_now_line(now)}. Kurs: dieser Ordner, die CLAUDE.md ist geladen; "
-        "nutze seine Dateien und seine Lern-Loop-Mechanik, wo sie zum Auftrag passt.\n\n"
-        "Wird es ein Häppchen: " + _LOOP_BRIEF + " " + _finder_brief()
+        "Eigener Modus anlegen. Ich will eine feste Art von Session einrichten, die ich "
+        "später über eine eigene Menüzeile starte. Was sie tun soll, steht noch nicht "
+        "fest: nimm nichts an, klär es mit mir. Der Ablauf:\n"
+        "1. Begrüß mich in einem Satz und frag, was ich in diesem Modus machen will und "
+        "wie er ablaufen soll. Bau vorher nichts.\n"
+        "2. Hak nach, solange etwas offen ist, das eine spätere Session nicht selbst "
+        f"entscheiden kann: das Ziel, {scope}die Schritte in ihrer Reihenfolge, die Dauer, "
+        "das Arbeitsmedium, was am Ende vorliegen soll. Höchstens drei Fragen auf einmal, "
+        "und frag nichts, was ich schon gesagt habe. Ist nichts mehr offen, geh weiter.\n"
+        "3. Schreib einen kurzen Namen für die Menüzeile (höchstens 40 Zeichen) und eine "
+        "Anleitung. Die Anleitung bekommt später eine neue Session als ihren Auftrag, und "
+        "sie kennt dieses Gespräch nicht: schreib sie in der Du-Form an diese Session, mit "
+        "Ziel, Schritten, Dauer, Medium und dem Punkt, an dem sie fertig ist. "
+        f"{gets}. Lass ein festes Datum weg und alles, was nur heute stimmt.\n"
+        "4. Zeig mir Namen und Anleitung und warte auf mein OK oder meine Änderungen.\n"
+        "5. Nach dem OK speicherst du den Modus mit diesem Befehl. NAME ist der Name, die "
+        "Anleitung steht zwischen den beiden ANLEITUNG-Zeilen, die zweite ohne Einrückung:\n"
+        f"{_tool_cmd()} --save-mode 'NAME'{' ' + shlex.quote(course) if course else ''} <<'ANLEITUNG'\n"
+        "…\n"
+        "ANLEITUNG\n"
+        f"{binding}"
+        "Bearbeite die Registry-Datei nie selbst.\n"
+        "6. Sag mir in einem Satz, dass der Modus gespeichert ist und beim nächsten Start "
+        "des Menüs als Zeile „↳ NAME“ steht (`d` auf der Zeile lässt ihn täglich zuerst "
+        "starten). Frag dann, ob ich ihn jetzt gleich starten will. Wenn ja, arbeite in "
+        "dieser Session nach der Anleitung.\n\n"
+        + existing
     )
+
+
+def opening_message_mode_builder(data: dict, workspace: "str | None" = None,
+                                 now: "datetime | None" = None) -> str:
+    if workspace:
+        return _mode_builder_head(data, workspace) + _custom_course_context(now, "Modus")
+    return _mode_builder_head(data) + _custom_context(data["workspaces"], now)
+
+
+def _launch_mode_builder(data: dict, workspace: "str | None" = None, *, inline: bool) -> int:
+    """The session that creates a saved mode by asking: inside `workspace` when
+    the mode is for that course, at the courses' common root otherwise."""
+    if workspace:
+        inner = [*_backend_launch(_assemble_prompt(workspace), workspace),
+                 *_opening_args(opening_message_mode_builder(data, workspace))]
+        return _exec_or_konsole(inner, workspace, inline=inline)
+    workspaces = data["workspaces"]
+    inner = [*_backend_launch(_assemble_custom_prompt(building=True), _tutor_workdir(workspaces)),
+             *_opening_args(opening_message_mode_builder(data))]
+    return _exec_or_konsole(inner, _tutor_workdir(workspaces), inline=inline)
+
+
+def _save_mode_cli(name: str, workspace: "str | None") -> int:
+    """`--save-mode NAME [WORKSPACE]`: the instruction comes on stdin. Run by the
+    mode builder session."""
+    name = " ".join(name.split())
+    text = "" if sys.stdin.isatty() else sys.stdin.read().strip()
+    if not name or len(name) > 60:
+        print("Der Name fehlt oder ist länger als 60 Zeichen.")
+        return 1
+    if not text:
+        print("Keine Anleitung: sie kommt über die Standardeingabe, "
+              "z.B. `--save-mode 'NAME' <<'ANLEITUNG'` … `ANLEITUNG`.")
+        return 1
+    data = _load_registry()
+    course = None
+    if workspace:
+        want = _abs_path(workspace)
+        course = next((ws for ws in data["workspaces"] if course_list.same_path(ws, want)), None)
+        if not course:
+            print(f"Kein registrierter Kurs: {want}. Nichts gespeichert.")
+            return 1
+    replaced = _find_mode(data, name) is not None
+    _save_mode(data, name, text, course)
+    _save_registry(data)
+    print(f"Modus „{name}“ {'ersetzt' if replaced else 'gespeichert'} "
+          f"({Path(course).name if course else 'alle Kurse'}). "
+          f"Er steht beim nächsten Start des Menüs als Zeile „↳ {name}“.")
+    return 0
 
 
 def _launch_custom(data: dict, text: str, workspace: "str | None" = None, *,
                    inline: bool, mode: "str | None" = None) -> int:
     """A session for a typed Auftrag: inside `workspace` when given, at the
-    courses' common root otherwise. The Auftrag is kept only as the last one,
-    to prefill the menu's save prompt."""
-    data["custom_last"] = text.strip()
+    courses' common root otherwise. The Auftrag is not kept."""
     saved = _find_mode(data, mode) if mode else None
     daily = saved["name"] if saved and _mode_due(saved) else None   # `mode`: a saved mode started as it is
     if daily:
@@ -2898,7 +3023,7 @@ def _menu_loop(stdscr, data: dict, usage_halt: "float | None" = None):
                 label = "⚡ Quickie — ein kurzes Häppchen" + _quickie_suffix(data)
                 base = C["quickie"]
             elif row == _CUSTOM_SENTINEL:
-                label = "✎ Eigener Modus — sag, was du willst (z.B. Nachbereitung) …"
+                label = "✎ Eigener Modus anlegen — der Tutor fragt, was du willst und wie es ablaufen soll"
                 base = C["tutor"]
             elif _is_saved_row(row):
                 mode = _find_mode(data, row[len(_SAVED_PREFIX):])
@@ -2928,8 +3053,8 @@ def _menu_loop(stdscr, data: dict, usage_halt: "float | None" = None):
                          "g = Gärtner für die markierten · Enter/Esc = zurück",
                          C["foot"])
         else:
-            keys = ("↑/↓ bewegen · Enter starten · p = eigener Auftrag (auf Kurs: nur dieser Kurs) · "
-                    "s = festen Modus speichern (auf ↳: d = täglich zuerst) · "
+            keys = ("↑/↓ bewegen · Enter starten · p = einmaliger Auftrag (auf Kurs: nur dieser Kurs) · "
+                    "s = Modus anlegen (auf ↳: Text/Name ändern, d = täglich zuerst) · "
                     "Leertaste = Gärtner-Auswahl · m = Userspace · "
                     "o/O = Modell · e = Effort · d = Standard · x = löschen · g = Gärtner · q = beenden")
             _safe_addstr(stdscr, foot, 0, keys, C["foot"])
@@ -2983,34 +3108,36 @@ def _menu_loop(stdscr, data: dict, usage_halt: "float | None" = None):
             mode = _find_mode(data, row[len(_SAVED_PREFIX):]) if _is_saved_row(row) else None
             course = row if row in workspaces else (_mode_course(data, mode) if mode else None)
             text = _text_input(
-                stdscr, C, "Eigener Modus" + (f" — {Path(course).name}" if course else ""),
+                stdscr, C, "Einmaliger Auftrag" + (f" — {Path(course).name}" if course else ""),
                 "Was soll die Session machen? z.B. „Nachbereitung der Vorlesung von heute“, "
                 "„30 min Klausursimulation“, „erklär mir Kapitel 3 nochmal“",
                 mode["text"] if mode else "")
             if text:
                 return ("custom", (text, course, None))
         elif ch == ord("s") and workspaces:
-            # Save an Auftrag as a named mode without starting it. On a saved
-            # row: edit that mode. On a course row: a mode inside that course.
-            # Elsewhere: across all courses, prefilled with the last Auftrag.
+            # On a saved row: edit that mode's text and name by hand. Anywhere
+            # else a new mode is created by the mode builder session, inside the
+            # course on a course row, across all courses otherwise.
             row = rows[idx]
             mode = _find_mode(data, row[len(_SAVED_PREFIX):]) if _is_saved_row(row) else None
-            course = row if row in workspaces else (mode["course"] if mode else None)
+            if not mode:
+                if _is_saved_row(row):
+                    continue
+                return ("mode_new", row if row in workspaces else None)
+            course = mode["course"]
             where = f" — {Path(course).name}" if course else " — alle Kurse"
             keep = "Enter = weiter · Esc = zurück"
             text = _text_input(
                 stdscr, C, "Festen Modus speichern" + where,
                 "Der Auftrag, den dieser Modus jedes Mal startet (Strg+U leert das Feld):",
-                mode["text"] if mode else ("" if course else str(data.get("custom_last") or "")),
-                keep)
+                mode["text"], keep)
             name = text and _text_input(
                 stdscr, C, "Festen Modus speichern" + where,
                 "Kurzer Name für die Menüzeile, z.B. „Tagesvorbereitung“. "
                 "Ein Modus mit demselben Namen wird ersetzt.",
-                mode["name"] if mode else "", "Enter = speichern · Esc = zurück")
+                mode["name"], "Enter = speichern · Esc = zurück")
             if text and name:
-                _save_mode(data, name, text, course,
-                           replaces=mode["name"] if mode else None)   # persisted by the caller
+                _save_mode(data, name, text, course, replaces=mode["name"])   # persisted by the caller
                 rows = _menu_rows(workspaces, [m["name"] for m in _saved_modes(data)])
                 idx = rows.index(_SAVED_PREFIX + name)
         elif ch in (curses.KEY_UP, ord("k")):
@@ -3077,13 +3204,7 @@ def _menu_loop(stdscr, data: dict, usage_halt: "float | None" = None):
                     return ("custom", (mode["text"], _mode_course(data, mode), mode["name"]))
                 continue
             if rows[idx] == _CUSTOM_SENTINEL:
-                text = _text_input(
-                    stdscr, C, "Eigener Modus",
-                    "Was soll die Session machen? z.B. „Nachbereitung der Vorlesung von heute“, "
-                    "„30 min Klausursimulation Chemie“, „erklär mir Kapitel 3 nochmal“")
-                if text:
-                    return ("custom", (text, None, None))
-                continue
+                return ("mode_new", None)
             return ("launch", rows[idx])
 
 
@@ -3119,6 +3240,8 @@ def run_menu() -> int:
     if action == "custom":
         text, course, mode = ws
         return _launch_custom(data, text, course, inline=True, mode=mode)
+    if action == "mode_new":
+        return _launch_mode_builder(data, ws, inline=True)
     if action == "add":
         return do_add()  # interactive: claude helps decide the location, then --register's it
     return 0
@@ -3454,9 +3577,17 @@ def _main() -> int:
                         help="Quickie: one short, winnable Häppchen (5 min); "
                              "counts towards the streak shown in the menu")
     parser.add_argument("--auftrag", metavar="TEXT", default=None,
-                        help="Eigener Modus: a session for a free-text Auftrag, e.g. "
+                        help="a one-off session for a free-text Auftrag, e.g. "
                              "\"Nachbereitung der Vorlesung von heute\"; across all courses, "
                              "or inside the given workspace")
+    parser.add_argument("--new-mode", dest="new_mode", action="store_true",
+                        help="Eigener Modus: a session that asks what the mode is for and how "
+                             "it should run, then saves it as a menu row; across all courses, "
+                             "or for the given workspace")
+    parser.add_argument("--save-mode", metavar="NAME", dest="save_mode", default=None,
+                        help="save a mode under NAME, its instruction read from stdin; with a "
+                             "workspace the mode runs inside that course. Run by the "
+                             "--new-mode session, not by hand")
     parser.add_argument("--gaertner", nargs="*", metavar="PFAD", default=None,
                         help="Gärtner: a maintenance session to clean up, merge or revise "
                              "courses in chat; sees every course, the given paths are its focus")
@@ -3580,6 +3711,18 @@ def _main() -> int:
             print(_assemble_prompt(course) if course else _assemble_custom_prompt())
             return 0
         return _launch_custom(data, args.auftrag, course, inline=False)
+    if args.new_mode:
+        data = _ensure_default(_load_registry())
+        course = _abs_path(args.workspace) if args.workspace else None
+        if not data["workspaces"] and not course:
+            print(f"Noch kein Kurs registriert — run `{_command_name()}` for the menu.")
+            return 1
+        if args.print_prompt:
+            print(_assemble_prompt(course) if course else _assemble_custom_prompt(building=True))
+            return 0
+        return _launch_mode_builder(data, course, inline=False)
+    if args.save_mode is not None:
+        return _save_mode_cli(args.save_mode, args.workspace)
     if args.gaertner is not None:
         data = _ensure_default(_load_registry())
         focus = [_abs_path(p) for p in args.gaertner]   # not registered: that is a change to plan
