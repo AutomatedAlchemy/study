@@ -1,0 +1,11 @@
+# Template. Mo-Fr alle 5 Minuten: 5 bis 20 Minuten nach Beginn nachziehen.
+[Unit]
+Description=study Wochenvorbereitung (beginn)
+
+[Timer]
+OnCalendar=Mon..Fri *-*-* 08..17:00/5:00
+OnCalendar=Mon..Fri *-*-* 18:00,05,10,15,20,25,30:00
+Persistent=false
+
+[Install]
+WantedBy=timers.target

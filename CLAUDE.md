@@ -325,7 +325,7 @@ workaround made a session deaf to the board chat on 2026-09-05, and earlier a
 `test_board_template_carries_no_mcp_manual` pins the boundary: a server fact that
 seems missing is added to the server's descriptions — the Tutor Board server is
 a private repo of the author, agent docs at
-<https://beta.probable.work/agent.md> — not to the template.
+<https://board.probable.work/agent.md> — not to the template.
 
 ## Visuals: level in the course, forms in the medium
 
@@ -364,6 +364,29 @@ gap there as an appended line, format per the file's header. The launcher owns
 only that routing sentence. How the catch-all works through its inbox is its
 own CLAUDE.md's business, like any other procedure. Added 2026-09-24 so the
 rule lives in one place instead of a copied paragraph in every course.
+
+## Quiz cards for the scroller feed: a folder setting, one rule in the prompt
+
+The user's scroller app GifScroll (repo on the ThinkCentre, outside `~/Synced`) takes
+quiz cards from every course. The feed folder comes from `STUDY_FEED_DIR` or the
+registry key `feed_dir` (`--set-feed DIR`, `none` turns it off). When it is set and
+exists on the host, `_prompt_common` adds a `<feed_lernkarten>` block: after a review
+that books a Beleg, write 1–2 cards as a new file under `<feed>/lernkarten/<Kurs>/`;
+on arrival, book the answers from `<feed>/lernkarten_antworten/<Kurs>.jsonl`. The
+card format is one card of the Tutor Board `cards` block plus `id`, `muster`,
+`thema`, `hinweis`. Format, answer file, counting rule and the GifScroll side are in
+`docs/feed_lernkarten.md`, which both sides follow. Counting rule chosen by the user:
+a wrong answer is a Beleg, a right one may count as the §3b repair check, and
+`Fortschritt:` never moves. Added 2026-11-09 (gardener session); the GifScroll side
+is an open point in `~/Synced/Inbox/2026-11-11_gifscroll-offene-punkte.md`.
+
+Comments and lecture prep (2026-11-12): the phone can comment on a card; the GifScroll job
+writes it to `<feed>/lernkarten_kommentare/<Kurs>.jsonl`, and the brief tells the session to read
+it after the answers (`Feed-Kommentare: gelesen bis …` in `todo.md`): feedback, never a Beleg.
+The evening job also writes lecture-prep cards to `<feed>/lernkarten/VL-<Name>/` (`muster: null`,
+`zweck: "vorbereitung"`, expire after the lecture). No study course is named `VL-*`, so no
+session reads their answers or comments, and the "no card on material not yet taught" rule is
+for session-written cards only. Both parts are in `docs/feed_lernkarten.md`.
 
 ## Blatt-Finder: a tool in `templates/tools/`, three places that name it
 
@@ -525,8 +548,64 @@ build may still carry a model this one does not know, and that value falls back 
 | `templates/LERNLOOP_TEMPLATE.md` | the Lern-Loop procedure stamped into new workspaces |
 | `templates/media/*.md` | per-medium mechanics, appended to the system prompt |
 | `templates/tools/blatt_finder.py` | Blatt-Finder: validates a question→sheet mapping and builds the page; `--help` is the procedure |
+| `wochenvorbereitung.py` | Wochenvorbereitung logic (config, timetable, state, phases, prompt, result schema, cards, tool lists); pure, stdlib |
+| `templates/systemd/*` | timer and service templates for the three phases; not installed by the launcher |
+| `test_wochenvorbereitung.py` | offline tests for that mode |
 | `test_studyclaude.py` | offline tests — behaviour only, no network, no launch |
 | `requirements.txt` | empty by design; stdlib only |
+
+## Wochenvorbereitung: unattended, script collects, model reads, script writes
+
+`--wochenvorbereitung {woche,morgen,beginn}` (docs/modes.md) builds the appointment tabs
+without a person. Invariants:
+
+- **The model never writes files.** It gets Read, Glob, Grep and named board tools and returns one
+  JSON. The script validates it (`validate_result`) and writes state, cards and the `todo.md` line.
+  An invalid result writes nothing.
+- **One source for the tool lists.** `BOARD_ALLOWED` / `BOARD_DENIED` in `wochenvorbereitung.py` feed
+  claude's allow-list and opencode's deny-list; a test compares them. A new board tool belongs in
+  one of the two tuples. Untested: whether opencode's `permission` block also covers MCP tools
+  (named `<server>_<tool>` here); until that is probed, an unattended run under opencode is not
+  trusted.
+- **feedkit adapter.** With `wochenvorbereitung.feedkit` set, `week_appointments` takes appointments,
+  `VL-` feed names, topics and slide picks from the evening job's `prep/schedule.py` / `material.py` (imported by file
+  location in `_import_feedkit`: `sys.path` restored, feedkit modules dropped from `sys.modules`, no bytecode written into
+  the feedkit). Its state is read, never written. The own timetable parser fills in what it lacks or has disabled; any adapter
+  error falls back to the parser with a note (dry run and log). Slide text goes to `cache_dir` outside `~/Synced`.
+  A failed run sends one message through `<feedkit>/news/outbox.py` (`notify(text)`, loaded by file location, no secrets
+  in the text); without a feedkit it stays a log line. Verified against the real outbox: `notify(text, outbox=None, host=None, now=None)`.
+  The own timetable parser supplies only courses the feedkit does not know or has disabled (title and registry `key`); an enabled
+  course the feedkit skips on a day (its `dates`) stays out. Registry `slots`, `extras` and `exceptions` still force appointments.
+- **Reading the board: the run never reads tab content** (finding of 2026-11-19, tutor-board README and
+  `server/mcp.ts`). `read_board` by a second agent drains the tab's event queue (README:653, 918), moves the user's
+  submissions from `pending` to `seen` (README:2815-2827, `mcp.ts` `read_board` description) and drops the held wakes
+  on that tab (README:1112); `get_canvas`, `read_chat` and `wait_url` are as bad or worse. A later agent write then
+  turns every `seen` submission into `answered` (`boards.ts` `markAnswered`, l.3135; `pending` stays `pending`).
+  `list_tabs` consumes nothing and shows `submissions_you_have_not_read`, `submissions_read_but_unanswered`,
+  `pending_events`, `answers_the_board_did_not_mark` per tab, but not widget values typed without a submit. So
+  `read_board` and `get_canvas` are in `BOARD_DENIED`, and the script decides from its state file: replacing blocks
+  (`update_block`) is allowed only on a tab this tool built (`von_uns`), before the appointment starts, never handed
+  over (`uebergeben`), and only on the block ids it recorded (`bloecke`) (`_in_place`). Everything else is
+  `append_blocks` ("Neu seit ..."), and a tab whose `list_tabs` row shows waiting input is skipped
+  (`aktion: uebersprungen`). Residual risk: a widget value typed before the start without a submit is not visible and
+  could be replaced in an in-place update. Nothing sets `uebergeben` yet; a session that hands a tab over should set it
+  in the state file.
+- **Review cards:** `validate_card` follows the importer's rules (`cardlib.validate_card`: widgets, options, answer,
+  limits) plus the evening job's check for markup and links; the files go to `<feed>/lernkarten/<course folder>/`
+  (never `VL-*`; the importer wants `[A-Za-z0-9_][A-Za-z0-9_.-]{0,39}`, so a folder name with spaces is skipped with a
+  log line) with `muster: null` and a file-level `expires_at`. The importer accepts the extra card field `zweck` (it
+  validates known fields only and copies the card whole), so `zweck: "wiederholung"` stays.
+- **Prompt:** the unattended prompt is a short orientation, the sections "Struktur", "Blöcke bauen" and "Bild zu jedem
+  Inhalts-Tab" of `templates/media/board.md` (chosen by heading, paragraphs about waiting and hand-over dropped) and the
+  unattended rules. It does not carry the interactive orientation of `_prompt_common()`.
+- **Keys by folder name.** `METADATA.md` is read per material folder; `course_title` can be wrong.
+- **No personal paths.** All of them come from the registry key `wochenvorbereitung`; the board link
+  from an env file (mode 600), read at run time, never printed. The bearer is in a mode-600 file in a private
+  temp dir for a claude run (`--mcp-config <path>`, removed in a `finally`), in the env of an opencode run; never in an argv.
+- **Week preview:** `woche` renders one PNG (Pillow, lazy import) into `cache_dir`, copies it to `<feed>/pngs/` and
+  appends one line to `.parts/wochenvorschau.jsonl`. It never runs `merge_check`: the feed's daily merge picks it up.
+  Switch `vorschau` (default on); skipped in a dry run.
+- Not built yet: the evening job reading `woche-<KW>.json`, timer installation, PDF text cache.
 
 ## Gotchas
 

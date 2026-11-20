@@ -50,6 +50,8 @@ def spawns(monkeypatch, tmp_path):
     monkeypatch.delenv("STUDY_DEFAULT_WORKSPACE", raising=False)
     monkeypatch.delenv("STUDY_MEDIUM", raising=False)
     monkeypatch.delenv("STUDY_EXAMS", raising=False)
+    for prefix in m._ENV_PREFIXES:                          # a host's real feed must not leak in
+        monkeypatch.delenv(prefix + "FEED_DIR", raising=False)
     monkeypatch.setenv("CLAUDE_TIER_OVERRIDE", "max")
     monkeypatch.setattr(m, "_usage_percent", lambda: None)   # no usage request from a test
     monkeypatch.setattr(m.os, "chdir", lambda d: rec.update(cwd=d))
@@ -140,10 +142,40 @@ def test_registry_state_machine(tmp_path, monkeypatch):
     assert m._menu_rows([a], ["Nachbereitung"]) == [
         m._BEGLEITER_SENTINEL, m._QUICKIE_SENTINEL, m._CUSTOM_SENTINEL,
         m._SAVED_PREFIX + "Nachbereitung", a, m._ADD_SENTINEL]
-    data = {}
-    for t in ["x", "y", "x"] + [str(i) for i in range(10)]:
-        m._remember_custom(data, t)
-    assert data["custom_modes"][0] == "9" and len(data["custom_modes"]) == m._CUSTOM_KEEP
+    # saved modes: named, optional course, same name replaces, a rename keeps the row
+    data = {"workspaces": [a]}
+    m._save_mode(data, "Tag", "Bereite den Tag vor")
+    m._save_mode(data, "Sim", "30 min Klausursimulation", a)
+    m._save_mode(data, "Tag", "Bereite den Tag neu vor")
+    assert [x["name"] for x in m._saved_modes(data)] == ["Tag", "Sim"]
+    assert m._find_mode(data, "Tag")["text"] == "Bereite den Tag neu vor"
+    m._save_mode(data, "Morgen", "Bereite den Tag neu vor", replaces="Tag")
+    assert [x["name"] for x in m._saved_modes(data)] == ["Morgen", "Sim"]
+    sim = m._find_mode(data, "Sim")
+    assert m._mode_course(data, sim) == a and m._mode_label(data, sim).endswith(Path(a).name)
+    data["workspaces"] = []                                   # course gone → all courses
+    assert m._mode_course(data, sim) is None and m._mode_label(data, sim) == "Sim"
+    m._delete_mode(data, "Sim")
+    assert [x["name"] for x in m._saved_modes(data)] == ["Morgen"]
+    assert m._saved_modes({"saved_modes": ["alt", {"name": "", "text": "x"}]}) == []
+    # a daily mode is due until it is reported done that day; editing keeps both fields
+    assert m._due_mode(data, "2026-11-18") is None
+    assert m._set_mode_field(data, "Morgen", daily=True) and not m._set_mode_field(data, "fehlt", daily=True)
+    assert m._due_mode(data, "2026-11-18")["name"] == "Morgen"
+    m._set_mode_field(data, "Morgen", done="2026-11-18")
+    assert m._due_mode(data, "2026-11-18") is None
+    assert m._due_mode(data, "2026-11-19")["name"] == "Morgen"
+    assert m._mode_label(data, m._find_mode(data, "Morgen"), "2026-11-18").endswith("heute erledigt ✓")
+    m._save_mode(data, "Früh", "neuer Text", replaces="Morgen")
+    assert m._find_mode(data, "Früh")["daily"] and m._find_mode(data, "Früh")["done"] == "2026-11-18"
+    assert "--mode-done 'Früh'" in m.opening_message_custom("x", [a], daily="Früh")
+    assert "--mode-done" not in m.opening_message_custom("x", [a])
+
+    # the Quickie row: streak, else total with the date of the last one
+    assert m._quickie_suffix({}) == ""
+    assert m._quickie_suffix({"quickies": {"last": "2026-10-11", "streak": 4, "total": 38}}) \
+        == "   · 38 Quickies, zuletzt 11.10."
+    assert m._quickie_suffix({"quickies": {"last": "kaputt", "total": 1}}) == "   · 1 Quickie"
     assert "<auftrag>\nNachbereitung\n</auftrag>" in m.opening_message_custom("Nachbereitung", [a])
     # a default that is neither a course nor a known sentinel (retired sentinel
     # from another host, unregistered course) counts as unset — in the menu and
@@ -408,6 +440,26 @@ def test_catchall_rule_only_with_a_marked_registered_course(tmp_path):
         assert "<mathe_luecken>" in text and str(Path(b, m.CATCHALL_INBOX)) in text
     m._unregister_workspace(b)
     assert "<mathe_luecken>" not in m._prompt_common()          # unregistered: silent
+
+
+def test_feed_cards_rule_only_with_a_feed_folder_present(tmp_path, monkeypatch):
+    """Every session learns about the scroller feed's quiz cards once a feed
+    folder is set and exists on this host; the path never comes from main.py."""
+    (a,) = _courses(tmp_path, "Physik")
+    m._register_workspace(a)
+    assert "<feed_lernkarten>" not in m._prompt_common()        # nothing set
+    feed = tmp_path / "Feed"
+    assert m._set_feed(str(feed)) == str(feed)
+    assert "<feed_lernkarten>" not in m._prompt_common()        # set, but missing here
+    feed.mkdir()
+    for text in (m._assemble_prompt(a), m._assemble_begleiter_prompt(), m._assemble_gaertner_prompt()):
+        assert "<feed_lernkarten>" in text
+        assert str(feed / m.FEED_CARDS_DIR) in text and str(m.FEED_CONTRACT) in text
+    assert m.FEED_CONTRACT.is_file()
+    assert m._set_feed("none") is None
+    assert "<feed_lernkarten>" not in m._prompt_common()        # turned off
+    monkeypatch.setenv("STUDY_FEED_DIR", str(feed))
+    assert "<feed_lernkarten>" in m._prompt_common()            # env alone is enough
 
 
 def test_scaffold_never_overwrites_and_teaches_the_conventions(tmp_path):
@@ -877,9 +929,9 @@ def test_opencode_model_lists(monkeypatch):
     monkeypatch.setattr(m, "ENGINE", "opencode")
     monkeypatch.setattr(m, "_opencode_models", lambda: [
         "anthropic/claude-opus-5-5", "openai/gpt-5", "opencode/a-free", "opencode/big"])
-    assert m._available_models() == ["standard", "opus", "sonnet", "fable", "opencode/a-free"]
+    assert m._available_models() == ["standard", "opus", "sonnet", "haiku", "fable", "opencode/a-free"]
     full = m._available_models(full=True)
-    assert full[:4] == ["standard", "opus", "sonnet", "fable"]
+    assert full[:5] == ["standard", "opus", "sonnet", "haiku", "fable"]
     assert {"openai/gpt-5", "opencode/big"} <= set(full) and "anthropic/claude-opus-5-5" not in full
     assert m._model_label("standard") == "opencode-Standard"
     monkeypatch.setattr(m, "ENGINE", "claude")
@@ -1427,14 +1479,41 @@ def test_opencode_registers_the_tutor_board_mcp(tmp_path, monkeypatch):
     assert cfg["mcp"]["servers"][m.BOARD_MCP_NAME]["url"] == "https://example.invalid/mcp"
 
 
-def test_claude_launch_has_no_mcp_entry_and_no_opencode_board_text(tmp_path, monkeypatch):
+def test_claude_launch_has_its_own_board_entry_and_no_opencode_board_text(tmp_path, monkeypatch):
+    """Claude Code gets the board as its own MCP entry (one-click sign-in over a
+    redirect to this computer) and hides the claude.ai connector of the same
+    service, but never an address equal to the entry's own."""
     monkeypatch.setattr(m, "ENGINE", "claude")
     monkeypatch.setenv("STUDY_MEDIUM", "board")
     ws = _courses(tmp_path, "a")[0]
     argv = m._build_argv(ws)
-    assert "mcp" not in " ".join(argv[:5]) and argv[0] == "claude"
+    assert argv[0] == "claude"
+    entry = json.loads(argv[argv.index("--mcp-config") + 1])
+    assert entry == {"mcpServers": {m.BOARD_MCP_NAME: {"type": "http", "url": m.BOARD_MCP_URL}}}
+    hidden = json.loads(argv[argv.index("--settings") + 1])["deniedMcpServers"]
+    assert hidden == [{"serverUrl": "https://beta.probable.work/mcp"}]
+    # both flags take several values: a flag follows each, so neither eats the opening message
+    assert argv[argv.index("--mcp-config") + 2].startswith("--")
+    assert argv[argv.index("--settings") + 2].startswith("--")
+    monkeypatch.setenv("STUDY_BOARD_MCP_URL", "https://beta.probable.work/mcp")
+    args = m._claude_board_args()
+    assert json.loads(args[args.index("--settings") + 1])["deniedMcpServers"] == [
+        {"serverUrl": "https://board.probable.work/mcp"}]
+    monkeypatch.delenv("STUDY_BOARD_MCP_URL")
     assert "/mcps" not in m._assemble_begleiter_prompt()
     assert "/mcps" not in m.opening_message_begleiter([ws])
+
+
+def test_claude_puts_the_board_login_hint_first(tmp_path, monkeypatch):
+    monkeypatch.setattr(m, "ENGINE", "claude")
+    monkeypatch.setenv("STUDY_MEDIUM", "board")
+    ws = _courses(tmp_path, "a")[0]
+    hint = m._board_login_hint()
+    assert "/mcp," in hint and m.BOARD_MCP_NAME in hint and "Allow" in hint and "warten" in hint
+    assert "claude.ai" not in hint
+    assert "erste Zeile" in m._assemble_begleiter_prompt()
+    assert hint in m._assemble_begleiter_prompt()
+    assert hint in m.opening_message_begleiter([ws])
 
 
 def test_opencode_tells_the_user_to_log_in_via_mcps(tmp_path, monkeypatch):
@@ -1473,3 +1552,43 @@ def test_refresh_icon_writes_next_to_the_registry_and_counts_courses(tmp_path):
 def test_refresh_icon_never_raises(monkeypatch):
     monkeypatch.setattr(m.course_icon, "write_icon", lambda *a, **k: 1 / 0)
     assert m.refresh_icon() is None
+
+
+def test_a_course_name_other_than_its_folder_is_the_menu_label(tmp_path):
+    a, b = _courses(tmp_path, "AMW_I", "Chemie")
+    cl.apply(tmp_path, add=[{"id": "c1", "name": "AMW I – Polymere, Metalle", "path": "AMW_I"},
+                            {"id": "c2", "name": "Chemie", "path": "Chemie"}])
+    data = m._load_registry()
+    assert m._course_label(data, a) == "AMW I – Polymere, Metalle   (AMW_I)"
+    assert m._course_label(data, b) == b                    # same as the folder: path as before
+    m._save_registry(data)
+    assert "_course_labels" not in json.loads(m._registry_path().read_text())
+
+
+def test_daily_mode_launch_and_done(tmp_path, monkeypatch, spawns, capsys):
+    """A due daily mode gets the done command in its opening message and is not
+    autostarted again right after the launch; `--mode-done` closes it for the day."""
+    (a,) = _courses(tmp_path, "Physik")
+    data = m._load_registry()
+    data["workspaces"].append(a)
+    m._save_mode(data, "Tag", "Bereite den Tag vor")
+    m._set_mode_field(data, "Tag", daily=True)
+    m._save_registry(data)
+    assert m._due_mode(m._load_registry())["name"] == "Tag"
+    m._launch_custom(data, "Bereite den Tag vor", None, inline=True, mode="Tag")
+    assert "--mode-done Tag" in " ".join(spawns["exec"][-1])
+    data = m._load_registry()
+    tag = m._find_mode(data, "Tag")
+    assert m._mode_due(tag) and m._mode_running(tag) and m._due_mode(data) is None
+    later = datetime.datetime.now() + datetime.timedelta(minutes=m._MODE_RUNNING_MIN + 1)
+    assert m._due_mode(data, now=later)["name"] == "Tag"       # cut off: due again
+    m._launch_custom(data, "nur heute anders", None, inline=True)       # one-off: no command
+    assert "--mode-done" not in " ".join(spawns["exec"][-1])
+    monkeypatch.setattr(sys, "argv", ["studyclaude", "--mode-done", "fehlt"])
+    assert m.main() == 1
+    monkeypatch.setattr(sys, "argv", ["studyclaude", "--mode-done", "Tag"])
+    assert m.main() == 0
+    data = m._load_registry()
+    assert not m._mode_due(m._find_mode(data, "Tag")) and m._due_mode(data, now=later) is None
+    m._launch_custom(data, "Bereite den Tag vor", None, inline=True, mode="Tag")
+    assert "--mode-done" not in " ".join(spawns["exec"][-1])   # done today: plain Auftrag

@@ -1,0 +1,12 @@
+# Template. Replace the @...@ placeholders, then copy to ~/.config/systemd/user/.
+# Not installed by the launcher (no installer flag yet).
+[Unit]
+Description=study Wochenvorbereitung (woche)
+
+[Service]
+Type=oneshot
+# flock: one run at a time. The engine login (token or opencode auth) comes from
+# the environment file, which is outside the synced tree and has mode 600.
+EnvironmentFile=@ENGINE_ENV_FILE@
+ExecStart=/usr/bin/flock -n @LOCK_FILE@ @PYTHON@ @STUDY_DIR@/main.py --engine @ENGINE@ --wochenvorbereitung woche
+TimeoutStartSec=3600

@@ -22,9 +22,8 @@ Out of the box `openstudy` uses the model already set in your opencode config, s
 a working opencode is a working tutor. Switch models in the menu at any time.
 
 **`studyclaude`** is the same tool running in [Claude Code](https://claude.com/claude-code)
-instead. Use it if you have a Claude subscription and want the claude.ai
-connectors (Tutor Board, Google Calendar) without extra setup; it runs Claude
-models only.
+instead. Use it if you have a Claude subscription and want your claude.ai
+connectors (Google Calendar) without extra setup; it runs Claude models only.
 
 Both commands are one program (`main.py --engine opencode|claude`) with the same
 Lern-Loop, menu and courses. The courses, the default course, the exam file and the
@@ -80,9 +79,12 @@ is interactive tutoring, where latency is felt more than reasoning depth helps.
 Differences of the opencode engine: opencode has no `--append-system-prompt`, so the
 launcher writes the prompt to `$XDG_RUNTIME_DIR/study/prompt-<hash>.md` and passes it,
 with the course's `CLAUDE.md`, as `instructions`; subagents run on the session's model.
-The **Tutor Board** is registered for you in every `openstudy` session
-(`https://beta.probable.work/mcp`, override with `STUDY_BOARD_MCP_URL`); nothing is
-written to your opencode config. Google Calendar is not connected (Claude Code gets it
+The **Tutor Board** is registered for you in every session of both tools
+(`https://board.probable.work/mcp`, override with `STUDY_BOARD_MCP_URL`); nothing is
+written to your opencode or Claude Code config. The engine signs in by itself with a
+redirect to your computer, so the board's sign-in page needs one click on **Allow** when
+your browser is signed in to the board, and takes a board link otherwise. `studyclaude`
+hides a claude.ai connector for the board in its sessions, so the tools do not show twice. Google Calendar is not connected (Claude Code gets it
 as a claude.ai connector; opencode needs its own MCP entry).
 
 ### First start: log in to the Tutor Board
@@ -111,6 +113,7 @@ into `_archiv/` beside it · `q` quits. Untouched for ten seconds it autostarts 
 | `openstudy --begleiter` | Begleiter (the default): one session over all courses checks the timetable for the current time and helps with what is due — a lecture running now, starting soon or just ended, a deadline, or a Häppchen in free time |
 | `openstudy --quickie` | One short, winnable Häppchen (about 5 min); counts a daily streak |
 | `openstudy --gaertner [PFAD…]` | Gärtner: a maintenance session, no studying. You tell it in chat which courses to clean up, merge or revise; the paths are its focus |
+| `openstudy --wochenvorbereitung woche\|morgen\|beginn` | Unattended: builds and updates the appointment tabs of the week from the timetable and the synced material, no chat; for timers, with `--dry-run` to inspect ([docs/modes.md § Wochenvorbereitung](docs/modes.md#wochenvorbereitung)) |
 
 Mechanics of the three modes, the streak and the dossiers: [docs/modes.md](docs/modes.md).
 The Begleiter reads who you are and where your timetable lives from a tab
@@ -118,7 +121,7 @@ The Begleiter reads who you are and where your timetable lives from a tab
 ([docs/modes.md § Begleiter](docs/modes.md#begleiter)).
 To steer which course the Begleiter and the Quickie pick on which weekday, put a
 plain-text rule into `data/wochenplan.md` ([docs/modes.md § Wochenplan](docs/modes.md#wochenplan)).
-Other flags: `--list` (`*` marks the default), `--set-default`, `--set-medium`,
+Other flags: `--list` (`*` marks the default), `--set-default`, `--mode-done`, `--set-medium`,
 `--set-model`, `--set-effort`, `--add` (guided onboarding), `--register`,
 `--unregister`, `--print-prompt`, `--dry-run`, `--install [ws]`, `--remove [ws]`.
 
@@ -138,10 +141,10 @@ service). Switch with `m`, `openstudy --set-medium xournalpp|board` or
 clips a course gets is one Eckdaten row in its `CLAUDE.md`, see
 [docs/workspace.md](docs/workspace.md#visuals-per-course).
 
-**Tutor Board** lives at <https://beta.probable.work>. An agent connects as an
-MCP (Model Context Protocol) connector, `https://beta.probable.work/mcp`, with
+**Tutor Board** lives at <https://board.probable.work>. An agent connects as an
+MCP (Model Context Protocol) connector, `https://board.probable.work/mcp`, with
 OAuth 2.1 + PKCE (Proof Key for Code Exchange); live docs at
-<https://beta.probable.work/setup.md> and <https://beta.probable.work/agent.md>.
+<https://board.probable.work/setup.md> and <https://board.probable.work/agent.md>.
 This tool ships no MCP client and no credentials — those come from your own
 Claude Code or opencode MCP config.
 
@@ -197,7 +200,8 @@ Every variable is read as `STUDY_<NAME>`; the old `STUDYCLAUDE_<NAME>` and
 | `STUDY_CONFIG_DIR` | Where `host.json` lives (default `~/.config/study`) |
 | `STUDY_EXAMS` | Markdown file with your exam-date table (banner off when unset; registry key `exams_file` does the same) |
 | `STUDY_MEDIUM` | Override the working medium for one launch (`xournalpp` \| `board`) |
-| `STUDY_BOARD_MCP_URL` | Tutor Board MCP URL that `openstudy` registers (default `https://beta.probable.work/mcp`) |
+| `STUDY_FEED_DIR` | Scroller feed folder that takes quiz cards from every course (rule off when unset or missing; registry key `feed_dir`, set with `--set-feed`; contract in `docs/feed_lernkarten.md`) |
+| `STUDY_BOARD_MCP_URL` | Tutor Board MCP URL that both tools register (default `https://board.probable.work/mcp`) |
 
 **Where things live.** The course list is `<study root>/.study/courses.json`, next to your
 courses (versioned, one entry per course with a stable `id`, paths relative to the root).

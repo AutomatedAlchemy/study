@@ -1,0 +1,10 @@
+# Template. Mo-Fr 06:30: Termine von heute prüfen.
+[Unit]
+Description=study Wochenvorbereitung (morgen)
+
+[Timer]
+OnCalendar=Mon..Fri *-*-* 06:30:00
+Persistent=false
+
+[Install]
+WantedBy=timers.target

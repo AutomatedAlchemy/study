@@ -58,7 +58,7 @@ stop, it says goodbye in a sentence; no lecture. A Quickie still counts in the
 
 The launcher keeps a streak in the registry (`quickies`: last date, days in a
 row, total) and shows it on the row — `· Serie: 3 Tage` while the streak is
-alive (a Quickie today or yesterday), `· bisher 12` otherwise. The session gets
+alive (a Quickie today or yesterday), `· 12 Quickies, zuletzt 11.10.` otherwise. The session gets
 the numbers to mention in its greeting. A launch counts as a Quickie; the
 launcher never judges whether you finished. `studyclaude --set-default quickie`
 (or `d` on the row) makes it the 10s autostart target.
@@ -72,9 +72,28 @@ The third mode row, **✎ Eigener Modus**, asks for one line of free text, for e
 launcher adds no logic of its own. The session gets the text as its `<auftrag>`, plus the time,
 the exams and every dossier, and works out the steps itself. It starts at the
 courses' common root, like the Begleiter. Press `p` on a course row to do the same inside
-that course, with its CLAUDE.md loaded. The last 8 Aufträge are kept in the registry
-(`custom_modes`) and show up as `↳` rows under the mode. Enter starts one again, `p`
-edits it first, and `x` removes it. From the shell, use `--auftrag "TEXT" [WORKSPACE]`.
+that course, with its CLAUDE.md loaded. From the shell, use `--auftrag "TEXT" [WORKSPACE]`.
+
+An Auftrag runs once and is not kept. To keep one, press `s`: it asks for the Auftrag and
+a short name and saves both as a named mode (`saved_modes` in the registry) without
+starting it. `s` on a course row binds the mode to that course. On any other row the mode
+runs across all courses and the prompt is prefilled with the last Auftrag you started
+(`custom_last`). Saved modes show up as `↳ Name` rows under the mode, with the course name
+when they have one. Enter starts one, `p` starts it once with an edited text, `s` changes
+its text or name, and `x` removes it. A mode with the same name is replaced. A mode whose
+course is no longer registered runs across all courses.
+
+`d` on a `↳` row makes the mode daily. A daily mode that has not been reported done today
+is the menu's default instead of the stored one: the cursor starts on it, the row says
+`★ startet heute zuerst`, and the 10s autostart runs it. Done is not the same as launched,
+because a launch can be cut off. The session reports it itself: a daily mode's Auftrag ends
+with the instruction to run `studyclaude --mode-done NAME` once everything for the day is
+prepared, or when there is nothing to prepare. That writes today's date into the mode
+(`done`), and the stored default (the Begleiter, unless changed) is back until midnight. A
+daily mode started again on the same day is told to check what exists and build only what
+is missing. For 60 minutes after a launch the menu does not autostart the mode again (the
+row says `läuft seit HH:MM`), so a second menu does not start a second run beside the first;
+Enter on the row still starts it. Starting it with an edited text (`p`) is a one-off and gets no such instruction.
 
 ## Wochenplan
 
@@ -116,6 +135,69 @@ and moves what should go into `_archiv/` inside the course instead of deleting
 it, unless you ask for deletion. After a merge it re-estimates the `Fortschritt:`
 line and sets `Übersicht: fehlt`, so the next study session builds a new overview.
 The Gärtner keeps no state and does not count towards the Quickie streak.
+
+## Wochenvorbereitung
+
+`studyclaude --wochenvorbereitung {woche,morgen,beginn}` bereitet die Termin-Tabs der
+Woche ohne Aufsicht vor. Es ist kein Menümodus: Timer rufen es auf einem Rechner auf, der
+das Board und die Kursordner erreicht (Vorlagen in `templates/systemd/`, nicht
+installiert). Die Logik steht in `wochenvorbereitung.py`, der Start der Engine in
+`_backend_headless` (`main.py`).
+
+| Phase | Wann | Was |
+|---|---|---|
+| `woche` | Samstag 07:00 | Tabs für alle Termine der kommenden Woche (Mo bis Fr) bauen, `woche-<KW>.json` schreiben |
+| `morgen` | Mo bis Fr 06:30 | Termine von heute: neue Dateien im Materialordner? Dann Tab nachziehen |
+| `beginn` | Mo bis Fr alle 5 Minuten | Termine, deren Beginn 5 bis 20 Minuten zurückliegt: bei +5, +10, +15 prüfen, bei +20 schließen |
+
+Neu heißt: ein `file_history`-Zeitstempel in der `METADATA.md` des Materialordners liegt nach
+dem gespeicherten. Der Schlüssel ist der Ordnername, nie `course_title`. Ist nichts neu, läuft
+kein Modell. Ist `last_fetched` zu alt (nicht heute, bzw. nicht vor Beginn −5 Minuten), steht
+„StudOn heute nicht synchronisiert“ als Ergebniszeile im Zustand.
+
+- **Zustand:** je Termin `<state_dir>/termine/<YYYY-MM-DD>_<HHMM>_<slug>.json`, dazu
+  `<state_dir>/woche-<KW>.json`. Der Zustand ersetzt das Herleiten aus `todo.md`.
+- **Konfiguration:** Registry-Schlüssel `wochenvorbereitung`, gesetzt mit
+  `--set-wochenvorbereitung KEY VALUE` (`material_root`, `timetable`, `state_dir`, `env_file`,
+  `engine`, `model`, `skip`, `extras`, `exceptions`, `termin:<Titel>` mit
+  `Kursordner;Materialordner;Board;VL-Name`). Die Stundenplandatei ist eine Markdown-Tabelle
+  `| Tag | Zeit | Veranstaltung | Typ | Gebäude | Dozent | Zeitraum |`.
+- **Board-Link:** steht in einer Env-Datei (Modus 600, Pfad `env_file`, Variable `BOARD_LINK`).
+  Der Lauf tauscht ihn mit `POST /agent/token` gegen einen Bearer. Die Datei fehlt oder ist für
+  andere lesbar: Abbruch mit Code 2.
+- **Werkzeuge:** claude bekommt eine Allow-Liste (`dontAsk`), opencode eine Deny-Liste (`--auto`).
+  Beide kommen aus einer Quelle (`BOARD_ALLOWED` / `BOARD_DENIED`). Erlaubt sind Read, Glob, Grep
+  und `list_boards`, `list_tabs`, `create_tab`, `update_tab`,
+  `append_blocks`, `update_block`. Nie `select_tab`, `clear_board`, `show_board`, `select_board`.
+- **Regeln für Tab-Änderungen:** Der Lauf liest nie den Inhalt eines Tabs, weil `read_board` dem User Abgaben und Klicks
+  wegnehmen würde (Begründung in `CLAUDE.md`). Er sieht nur `list_tabs` (Titel, Fenster, Zähler). Ein Tab mit wartender Eingabe
+  wird übersprungen. Sonst wird angehängt („Neu seit …“). In Ort und Stelle ändert er nur Blöcke eines Tabs, den er selbst
+  gebaut hat, vor Beginn des Termins und nur an den im Zustand gemerkten Block-Ids.
+- **Woche:** `woche` nimmt ab Samstag die nächste Woche, Mo bis Fr die laufende, dann nur Termine, die noch nicht begonnen
+  haben. `--woche JJJJ-Www` erzwingt eine Woche. Wiederkehrende Termine, die weder feedkit noch die Stundenplandatei kennen,
+  stehen in der Registry-Liste `slots` (Setter: `--set-wochenvorbereitung slots '<JSON-Liste>'`, je Eintrag `weekday`, `start`,
+  `end`, `title`, optional `from`, `to`).
+- **Feed:** Der Lauf liest die letzten 7 Tage aus `lernkarten_antworten/VL-<Name>.jsonl` (falsche erste Antworten) und
+  `lernkarten_kommentare/VL-<Name>.jsonl` und gibt sie als Datenblock `<feed_rueckmeldung>` weiter. Er bucht nichts daraus.
+  Er schreibt je Termin 1 bis 2 Wiederholungskarten, `woche-<KW>.json` nach `<Feed>/wochenvorbereitung/` und ein
+  Vorschaubild (Schalter `vorschau`, Vorgabe an); der tägliche Merge des Feeds nimmt den Part auf, unser Code startet ihn nicht.
+- **Fehler:** Ein gescheiterter Lauf schickt höchstens eine Nachricht über `<feedkit>/news/outbox.py`, ohne Geheimnisse.
+- **Ergebnis:** ein JSON je Lauf (Tab-Id, Thema, Schlüssel, `Bild:`, 1 bis 2 Wiederholungskarten,
+  ein Satz Vorschau). Ein ungültiges Ergebnis zählt als gescheiterter Lauf, es wird nichts
+  geschrieben.
+- **Prüfen:** `--wochenvorbereitung woche --dry-run` druckt Terminliste, Prompt, Befehl (Bearer als
+  `<bearer>`) und Werkzeugliste und schreibt nichts. `--termin ID` erzwingt einen Termin.
+
+- **Quelle der Termine (feedkit):** Ist `feedkit` gesetzt (Ordner des Abend-Jobs, nur auf dem Rechner, auf dem er liegt)
+  und vorhanden, liefert dessen `prep/schedule.py` die Termine samt `VL-`-Feedname, Thema und gewählten Folien
+  (`material.pick_material`). Die eigene Stundenplandatei ergänzt, was dort fehlt oder abgeschaltet ist (gleiches Datum,
+  gleicher Beginn, gleicher normierter Titel zählt als derselbe Termin). Der Folientext (`job.read_text`) kommt in ein
+  Cache-Verzeichnis außerhalb von `~/Synced` (`cache_dir`, Vorgabe `~/.cache/study/wochenvorbereitung`) und wird erst bei einem
+  echten Lauf geschrieben. Der Zustand des Abend-Jobs wird nur gelesen. Der eigene Parser liefert nur Kurse, die der feedkit nicht kennt oder abgeschaltet hat; ein aktiver Kurs, den der feedkit an einem Tag auslässt (`dates`), bleibt draußen. `slots`, `extras` und `exceptions` der Registry erzwingen Termine trotzdem. `notify(text, outbox=None, host=None, now=None)` ist gegen das echte Outbox geprüft. Fällt der Adapter aus, nimmt der Lauf den eigenen
+  Parser und meldet das im Dry-Run (`Hinweis:`) und im Log. Ein Eintrag in `termine` kann mit einem fünften Teil
+  (`...;feed;KOR`) an einen feedkit-Schlüssel gebunden werden; dann zählt dessen Feedname.
+
+Noch nicht gebaut: Änderungen im Abend-Job (liest die Terminliste noch nicht), ein Installer für die Timer.
 
 ## The progress line
 

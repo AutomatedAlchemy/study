@@ -1,0 +1,10 @@
+# Template. Samstag 07:00: Tabs der kommenden Woche.
+[Unit]
+Description=study Wochenvorbereitung (woche)
+
+[Timer]
+OnCalendar=Sat *-*-* 07:00:00
+Persistent=false
+
+[Install]
+WantedBy=timers.target

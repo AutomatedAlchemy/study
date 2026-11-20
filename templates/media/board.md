@@ -1,8 +1,8 @@
 # Arbeitsmedium-Mechanik: Tutor Board
 
 **Voraussetzung:** Das Board braucht ein Tutor-Board-Konto (Einladung nötig,
-beta.probable.work). Die MCP-Verbindung richtet der Launcher ein bzw. sie
-kommt von den Connectors des Users; study speichert keine Zugangsdaten.
+board.probable.work). Die MCP-Verbindung richtet der Launcher ein, als Eintrag
+`tutor-board`; study speichert keine Zugangsdaten.
 
 **Bedienung des Boards:** den Tool-Beschreibungen und den Server-Instructions des
 Tutor-Board-MCP folgen. Diese Datei sagt nur, was der Lern-Loop auf dem Board haben
@@ -37,6 +37,19 @@ beschrieben oder behoben, nicht hier umschifft.
   (`H03 …`); der ganze Satz gehört in die Tab-Beschreibung.
 - **Quiz-Häppchen** als eigener Tab (`Q01 <Thema>`), eine Frage pro Block,
   geantwortet wird im selben Tab.
+- **Tabs zu einem Termin bekommen ihr Zeitfenster** (Nutzervorgabe 18.11.2026): ein
+  Tab, der zu einer Veranstaltung mit fester Zeit gehört (Vorbereitung, Begleitung,
+  Nachbereitung), wird mit `starts_at` und `ends_at` aus dem Stundenplan angelegt. Das
+  Board markiert dann selbst den Tab, dessen Fenster gerade läuft, ohne dass eine
+  Session läuft. `list_tabs` zeigt die Fenster: so sieht eine Vorbereitung, welche
+  Termine des Tages schon einen Tab haben. Ein Termin-Tab, der schon besteht und
+  noch kein Fenster hat, bekommt es per `update_tab`. Häppchen ohne Termin bekommen
+  keins.
+- **Termin-Tabs können schon bestehen:** die Wochenvorbereitung baut sie vorab und zieht sie
+  nach, wenn neues Material kommt. Eine Session findet sie mit `list_tabs` über ihr Fenster und
+  liest die Zustandsdatei `<Lernloops>/.wochenvorbereitung/termine/<Datum>_<HHMM>_<slug>.json`
+  (Thema, Schlüssel, gesehene Dateien) statt den Stand aus `todo.md` herzuleiten. Ein solcher Tab
+  ist noch nicht übergeben und nicht reviewt: das macht die Session wie bei jedem Häppchen.
 
 ## Blöcke bauen
 
@@ -264,10 +277,11 @@ die entsteht.
   gebaut (`manim-kit new NAME --template narrated`), jede Animation in einem
   `with self.voiceover(...)`-Block, der die Idee in ein bis zwei Sätzen sagt — nicht die
   Beschriftung vorlesen, sondern erklären, was gerade passiert. Stimme:
-  **`kokoro-v1:af_sarah`** (offline, kostenlos, englisch). Eine offline-deutsche Stimme
-  gibt es in dieser Version nicht; die bezahlte `gemini-flash-tts:Aoede:de` hat der User
-  am 18.09. abgelehnt („Englisch, kostenlos"). Vor dem ersten Clip je Host einmal
-  `manim-kit voice setup` (354 MB Modell). Die Musik mischt manim-kit bei Narration
+  **`gemini-flash-tts:Aoede:de`**, Sprechtext deutsch (Nutzervorgabe 12.11.2026: Aoede
+  für alle Board-Videos, ersetzt `kokoro-v1:af_sarah`). Sie ist der manim-kit-Standard,
+  also kein `--voice` angeben. Kostet etwa 0,6 Cent je Satz. Ohne Gemini-Schlüssel nimmt
+  manim-kit von selbst die Offline-Stimme `phonon:Annika:de`; einen 429 (Ratenlimit)
+  wartet es selbst ab. Die Musik mischt manim-kit bei Narration
   automatisch unter die Stimme — nichts extra einstellen. Der Hauptkontext lädt das mp4 hoch
   und hängt es als Video-Block unten an denselben Tab.
 - **Fail into silence:** scheitert der Render, bleibt es beim Textblock; kein Hinweis an
