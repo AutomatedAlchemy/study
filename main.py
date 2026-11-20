@@ -2623,6 +2623,11 @@ def _save_mode_cli(name: str, workspace: "str | None", replaces: "str | None" = 
             print(f"Kein registrierter Kurs: {want}. Nichts gespeichert.")
             return 1
     replaces = " ".join(replaces.split()) if replaces else None
+    if replaces and replaces != name and _find_mode(data, replaces) and _find_mode(data, name):
+        # A rename onto another mode's name would delete that mode as well.
+        print(f"Es gibt schon einen anderen Modus „{name}“. Nichts gespeichert: nimm einen "
+              f"anderen Namen, oder speichere ohne --replaces, wenn „{name}“ ersetzt werden soll.")
+        return 1
     replaced = any(_find_mode(data, n) for n in (name, replaces) if n)
     _save_mode(data, name, text, course, replaces=replaces)
     _save_registry(data)

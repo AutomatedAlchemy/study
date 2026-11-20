@@ -940,6 +940,7 @@ Dieser Lauf ist unbeaufsichtigt. Niemand antwortet im Chat. Diese Regeln gelten 
   "bild": "Bild: <Entscheidung und Grund>", "karten": [<1-2 Karten>], "vorschau": "<ein Satz>"}]}
 Bei „uebersprungen“ reichen termin, aktion und grund. `bloecke` nennt die Block-Ids, die du angelegt hast (Notizfelder, „Heute vermutlich“, Selbstcheck), für spätere Läufe.
 Eine Karte: {"thema": "<Kürzel>", "front": "<höchstens 300 Zeichen>", "input": {"widget": "radio" | "select" | "number", "options": [...nur bei radio/select]}, "answer": <genauer Optionstext oder Zahl>, "back": "<höchstens 3 Sätze>"}
+Kein Kartentext (front, back, options, answer) enthält das Zeichen <, einen Link, HTML oder Markdown-Links und -Bilder: schreib „kleiner als“ oder in einer Formel \\lt. Eine Karte mit so einem Text macht das ganze Ergebnis ungültig.
 Ein ungültiges Ergebnis zählt als gescheiterter Lauf, und nichts wird gespeichert.
 </unbeaufsichtigt>
 """

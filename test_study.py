@@ -1641,6 +1641,8 @@ def test_mode_builder_asks_first_and_the_session_saves(tmp_path, monkeypatch, sp
     assert save(["Sim", str(tmp_path / "fehlt")], "Text") == 1
     assert m._find_mode(m._load_registry(), "Sim") is None
     assert save(["Sim", a], "Ziel: 30 min Klausursimulation.\n1. Aufgaben wählen.\n") == 0
+    assert save(["Sim", "--replaces", "Tag"], "Text") == 1       # a rename never swallows another mode
+    assert m._find_mode(m._load_registry(), "Tag")["text"] == "Bereite den Tag vor"
     assert save(["Morgen", "--replaces", "Tag"], "Neu: bereite die Tabs für heute vor.") == 0
     assert "„Morgen“ ersetzt" in capsys.readouterr().out
     data = m._load_registry()
