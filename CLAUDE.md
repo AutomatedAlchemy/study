@@ -271,20 +271,25 @@ opening's counter line are the only consumers. The sentinel is a valid
 
 A saved mode (`saved_modes` in the registry: name, text, course or None, plus the daily
 fields) is created in a session, not typed into the menu (user, 2026-11-20). The mode row
-and `s` on a non-mode row return `("mode_new", course)`; `_launch_mode_builder` starts a
-session whose opening (`_mode_builder_head`) is the interview: ask what the mode is for and
-how it should run, follow up on what a later session could not decide itself, write a name
-and an instruction for a session that does not know the conversation, get the OK, save.
-The session saves with `--save-mode NAME [WORKSPACE]`, the instruction on stdin
-(`_save_mode_cli`), because a multi-line text in an argv breaks on quoting. A same name
-replaces the mode and keeps its daily state; the opening lists the existing modes so the
-interview can revise one. The builder gets the same context as a custom session (time,
-exams, dossiers), so it can run the new mode in the same session.
+and `s` return `("mode_new", (course, revise))`; `_launch_mode_builder` starts a session
+whose opening (`_mode_builder_head`) is the interview: propose three or four modes that fit
+the user's situation, ask which fits, follow up on what a later session could not decide
+itself, write a name and an instruction for a session that does not know the conversation,
+get the OK, save. The proposals and the answers offered with each question come from what
+the opening carries (dossiers, exams, medium, existing modes). An open "what do you want
+in this mode?" was the first version and the user found it too little (2026-11-20).
+The session saves with `--save-mode NAME [--replaces OLD] [WORKSPACE]`, the instruction on
+stdin (`_save_mode_cli`), because a multi-line text in an argv breaks on quoting. A same
+name or `--replaces` replaces the mode in place and keeps its daily state. The builder gets
+the same context as a custom session (time, exams, dossiers; one dossier for a course
+mode), so it can run the new mode in the same session.
 
-What the interview asks is in `_mode_builder_head` only. `s` on a `↳` row is still the
-manual editor for text and name, and `p` is the one-off Auftrag without a saved mode
-(`--auftrag`). `--new-mode` does not honour `--dry-run` (neither does `--auftrag`): it
-launches.
+What the interview asks is in `_mode_builder_head` only. `s` on a `↳` row starts it with
+`revise`: same steps, opening with what the mode does now and proposed changes. The menu
+has no editor for a mode's text any more, because the instructions are multi-line and
+`_text_input` is one line; for the same reason `p` on a `↳` row adds one line for that
+start instead of editing the text. `p` elsewhere is the one-off Auftrag (`--auftrag`).
+`--dry-run` prints the launch for `--new-mode` and `--auftrag` (`_show_launch`).
 
 ## Gärtner: maintenance by chat, plan before change
 

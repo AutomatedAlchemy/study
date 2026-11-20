@@ -1596,9 +1596,10 @@ def test_daily_mode_launch_and_done(tmp_path, monkeypatch, spawns, capsys):
 
 
 def test_mode_builder_asks_first_and_the_session_saves(tmp_path, monkeypatch, spawns, capsys):
-    """A mode is created in a session that asks, not typed into the menu: the
-    opening carries the interview and the save command, no Auftrag; `--save-mode`
-    takes the instruction from stdin and keeps a replaced mode's daily state."""
+    """A mode is created in a session that proposes and asks, not typed into the
+    menu: the opening carries the interview and the save command, no Auftrag;
+    `--save-mode` takes the instruction from stdin and keeps a replaced mode's
+    daily state; `s` on a saved row revises that mode."""
     a, b = _courses(tmp_path, "Physik", "Chemie")
     data = m._load_registry()
     data["workspaces"] += [a, b]
@@ -1606,11 +1607,15 @@ def test_mode_builder_asks_first_and_the_session_saves(tmp_path, monkeypatch, sp
     m._set_mode_field(data, "Tag", daily=True)
     m._save_registry(data)
     opening = m.opening_message_mode_builder(data)
-    assert "frag, was ich in diesem Modus machen will" in opening and "<auftrag>" not in opening
+    assert "Schlag mir dann drei oder vier Modi vor" in opening and "<auftrag>" not in opening
+    assert "Antworten zur Auswahl" in opening and "den es schon gibt" in opening
     assert "--save-mode 'NAME' <<'ANLEITUNG'" in opening and "„Tag“ (alle Kurse)" in opening
     assert f"### Physik — {a}" in opening                    # the path a course mode needs
     bound = m.opening_message_mode_builder(data, a)
-    assert f"--save-mode 'NAME' {a} <<'ANLEITUNG'" in bound and "<dossiers>" not in bound
+    assert f"--save-mode 'NAME' {a} <<'ANLEITUNG'" in bound
+    assert f"### Physik — {a}" in bound and "### Chemie" not in bound   # this course's state only
+    revise = m.opening_message_mode_builder(data, revise="Tag")
+    assert "Ich will den Modus „Tag“ ändern" in revise and "--save-mode 'NAME' --replaces Tag <<" in revise
     assert "legt der User einen eigenen Modus an" in m._assemble_custom_prompt(building=True)
     assert "<auftrag>" in m._assemble_custom_prompt()
     m._launch_mode_builder(data, None, inline=True)
@@ -1626,22 +1631,32 @@ def test_mode_builder_asks_first_and_the_session_saves(tmp_path, monkeypatch, sp
     assert save(["Sim", str(tmp_path / "fehlt")], "Text") == 1
     assert m._find_mode(m._load_registry(), "Sim") is None
     assert save(["Sim", a], "Ziel: 30 min Klausursimulation.\n1. Aufgaben wählen.\n") == 0
-    assert save(["Tag"], "Neu: bereite die Tabs für heute vor.") == 0
-    assert "„Tag“ ersetzt" in capsys.readouterr().out
+    assert save(["Morgen", "--replaces", "Tag"], "Neu: bereite die Tabs für heute vor.") == 0
+    assert "„Morgen“ ersetzt" in capsys.readouterr().out
     data = m._load_registry()
-    sim, tag = m._find_mode(data, "Sim"), m._find_mode(data, "Tag")
+    sim, tag = m._find_mode(data, "Sim"), m._find_mode(data, "Morgen")
     assert m._mode_course(data, sim) == a and sim["text"].endswith("1. Aufgaben wählen.")
     assert tag["text"].startswith("Neu:") and tag["daily"] and tag["course"] is None
-    assert [x["name"] for x in m._saved_modes(data)] == ["Tag", "Sim"]
+    assert [x["name"] for x in m._saved_modes(data)] == ["Morgen", "Sim"]   # renamed in place
 
-    # the menu: the mode row and `s` on a course start the builder, nothing is typed
+    # --dry-run shows the launch and starts nothing, for the builder and for an Auftrag
+    launched = len(spawns["exec"])
+    for flags in (["--new-mode"], ["--auftrag", "Nachbereitung"]):
+        monkeypatch.setattr(sys, "argv", ["studyclaude", *flags, "--dry-run"])
+        assert m.main() == 0 and "konsole --workdir" in capsys.readouterr().out
+    assert len(spawns["exec"]) == launched and not spawns["popen"]
+
+    # the menu: the mode row and `s` start the builder, nothing is typed
     import collections
     monkeypatch.setattr(curses, "curs_set", lambda _: None)
     monkeypatch.setattr(m, "_init_colors", lambda: collections.defaultdict(int))
     monkeypatch.setattr(m, "_available_models", lambda: ["opus"])
     monkeypatch.setattr(m, "_exam_banner_lines", lambda: [])
     monkeypatch.setattr(m.time, "monotonic", lambda: 0.0)
-    menu = {"workspaces": [a], "default": m._BEGLEITER_SENTINEL}
+    menu = {"workspaces": [a], "default": m._BEGLEITER_SENTINEL, "saved_modes": [sim]}
     down = curses.KEY_DOWN
-    assert m._menu_loop(MockCursesScreen([down, down, 10]), menu) == ("mode_new", None)
-    assert m._menu_loop(MockCursesScreen([down, down, down, ord("s")]), menu) == ("mode_new", a)
+    def keys(*seq):
+        return m._menu_loop(MockCursesScreen(list(seq)), menu)
+    assert keys(down, down, 10) == ("mode_new", (None, None))
+    assert keys(down, down, down, ord("s")) == ("mode_new", (a, "Sim"))        # the ↳ row: revise
+    assert keys(down, down, down, down, ord("s")) == ("mode_new", (a, None))   # the course row

@@ -121,7 +121,7 @@ The Begleiter reads who you are and where your timetable lives from a tab
 ([docs/modes.md § Begleiter](docs/modes.md#begleiter)).
 To steer which course the Begleiter and the Quickie pick on which weekday, put a
 plain-text rule into `data/wochenplan.md` ([docs/modes.md § Wochenplan](docs/modes.md#wochenplan)).
-Other flags: `--list` (`*` marks the default), `--set-default`, `--new-mode`, `--save-mode`,
+Other flags: `--list` (`*` marks the default), `--set-default`, `--new-mode`, `--save-mode` (with `--replaces`),
 `--mode-done`, `--set-medium`,
 `--set-model`, `--set-effort`, `--add` (guided onboarding), `--register`,
 `--unregister`, `--print-prompt`, `--dry-run`, `--install [ws]`, `--remove [ws]`.
