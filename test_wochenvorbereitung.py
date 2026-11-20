@@ -1,10 +1,11 @@
 """Offline tests for the Wochenvorbereitung mode: no engine, no network, tmp dirs only."""
+import dataclasses
 import importlib.util
 import json
 import os
 import re
 import sys
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 from pathlib import Path
 
 import pytest
@@ -286,9 +287,16 @@ def test_card_file_is_a_new_muster_null_file_that_expires_with_the_appointment(t
     appt = wv.appointments_for_week(wv.parse_timetable(TIMETABLE), 2026, 48)[0]
     now = datetime(2026, 11, 21, 7, 0)
     name, content = wv.build_card_file("Kurs_K", appt, [good_card(), good_card(front="Andere Frage?")], now)
-    assert re.fullmatch(r"20261121-0700-wv-korrosion-und-oberflaechentechnik\.json", name)
+    stamp = f"{appt.start:%Y%m%d-%H%M}"                            # the appointment's start, not the run's
+    assert stamp.startswith("20261123-") and name == f"{stamp}-wv-korrosion-und-oberflaechentechnik.json"
     assert content["kurs"] == "Kurs_K" and content["expires_at"].startswith("2026-11-23T13:45:00")
-    assert [c["id"] for c in content["cards"]] == ["Kurs_K-20261121-0700-1", "Kurs_K-20261121-0700-2"]
+    assert content["created_at"].startswith("2026-11-21T07:00")
+    assert [c["id"] for c in content["cards"]] == [f"Kurs_K-{stamp}-1", f"Kurs_K-{stamp}-2"]
+    # one run builds a week: the same title two days later shares neither file name nor ids
+    later = dataclasses.replace(appt, date=appt.date + timedelta(days=2),
+                                start=appt.start + timedelta(days=2), end=appt.end + timedelta(days=2))
+    name2, content2 = wv.build_card_file("Kurs_K", later, [good_card()], now)
+    assert name2 != name and content2["cards"][0]["id"] != content["cards"][0]["id"]
     assert all(c["muster"] is None and c["hinweis"] is False and "expires_at" not in c for c in content["cards"])
     first = wv.write_card_file(str(tmp_path), "Kurs_K", appt, [good_card()], now)
     assert first.parent == tmp_path / "lernkarten" / "Kurs_K"

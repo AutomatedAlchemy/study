@@ -1263,6 +1263,8 @@ def build_card_file(kurs: str, appt: Appointment, cards, now: datetime) -> tuple
     """(file name, content) of the review-card file for `<feed>/lernkarten/<kurs>/`.
     `kurs` is the course folder name. `muster` is null, so nothing is booked; the file
     level `expires_at` (end of the appointment, with offset) is what the importer copies.
+    File name and card ids carry the appointment's start, not the run's time: one run
+    builds a whole week, and two appointments of a course must not share either.
     ValueError on a violation."""
     if not valid_kurs(kurs) or kurs.startswith("VL-"):
         raise ValueError(f"Kursname „{kurs}“ taugt nicht als Feed-Ordner")
@@ -1272,7 +1274,7 @@ def build_card_file(kurs: str, appt: Appointment, cards, now: datetime) -> tuple
         errs.append("gleiche front zweimal")
     if errs:
         raise ValueError("; ".join(errs))
-    stamp = f"{now:%Y%m%d-%H%M}"
+    stamp = f"{appt.start:%Y%m%d-%H%M}"
     out = []
     for n, c in enumerate(cards, 1):
         out.append({"id": f"{kurs}-{stamp}-{n}", "muster": None, "thema": c["thema"], "hinweis": False,
@@ -1288,7 +1290,7 @@ def build_card_file(kurs: str, appt: Appointment, cards, now: datetime) -> tuple
 
 def write_card_file(feed_dir: str, kurs: str, appt: Appointment, cards, now: datetime) -> "Path | None":
     """Write `<feed>/lernkarten/<kurs>/<file>` as a new file (atomic, never overwritten);
-    None if it exists already."""
+    None if it exists already: an appointment gets one card file."""
     name, content = build_card_file(kurs, appt, cards, now)
     path = Path(feed_dir) / "lernkarten" / kurs / name
     path.parent.mkdir(parents=True, exist_ok=True)

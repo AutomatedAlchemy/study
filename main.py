@@ -3502,7 +3502,8 @@ def _wv_store_item(cfg, p, item, phase, now, states, feed) -> None:
                 _wv_log(f"{phase} {p.appt.id}: kein Feed-Ordner, Karten übersprungen")
             else:
                 try:
-                    wv.write_card_file(feed, kurs, p.appt, item["karten"], now)
+                    if wv.write_card_file(feed, kurs, p.appt, item["karten"], now) is None:
+                        _wv_log(f"{phase} {p.appt.id}: Kartendatei gibt es schon, Karten nicht geschrieben")
                 except ValueError as exc:
                     _wv_log(f"{phase} {p.appt.id}: Karten nicht geschrieben ({exc})"[:300])
     if p.close_phase:

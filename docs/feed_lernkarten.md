@@ -248,6 +248,7 @@ Der Abend-Job von GifScroll schreibt Vorbereitungskarten für die Vorlesungen de
 ## Wiederholungskarten der Wochenvorbereitung
 
 Der Lauf `--wochenvorbereitung` schreibt je Termin 1 bis 2 Karten nach `lernkarten/<Kurs>/<YYYYMMDD-HHMM>-wv-<slug>.json`.
+Datum und Uhrzeit in Dateiname und Karten-ids sind der Beginn des Termins, nicht die Zeit des Laufs: ein Termin hat eine Kartendatei.
 `<Kurs>` ist der Name des Kursordners (nie `VL-*`) und muss dem Ordnernamen-Muster des Imports entsprechen
 (`[A-Za-z0-9_][A-Za-z0-9_.-]{0,39}`, also ohne Leerzeichen), sonst entfallen die Karten mit einer Logzeile.
 Die Karten haben `muster: null`, `hinweis: false` und `zweck: "wiederholung"` (der Import prüft nur bekannte Felder und übernimmt die Karte
