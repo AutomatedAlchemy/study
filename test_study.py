@@ -159,6 +159,11 @@ def test_registry_state_machine(tmp_path, monkeypatch):
     m._delete_mode(data, "Sim")
     assert [x["name"] for x in m._saved_modes(data)] == ["Morgen"]
     assert m._saved_modes({"saved_modes": ["alt", {"name": "", "text": "x"}]}) == []
+    # a registry from before saved modes: the remembered Aufträge become modes, once
+    old = {"custom_modes": ["Nachbereitung der Vorlesung", " ", "Nachbereitung der Vorlesung"]}
+    assert [(x["name"], x["text"]) for x in m._saved_modes(old)] == [("Nachbereitung der Vorlesung",) * 2]
+    m._delete_mode(old, "Nachbereitung der Vorlesung")
+    assert m._saved_modes(old) == [] and old["saved_modes"] == []      # deleted stays deleted
     # a daily mode is due until it is reported done that day; editing keeps both fields
     assert m._due_mode(data, "2026-11-18") is None
     assert m._set_mode_field(data, "Morgen", daily=True) and not m._set_mode_field(data, "fehlt", daily=True)

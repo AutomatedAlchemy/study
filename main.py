@@ -1352,7 +1352,7 @@ def _save_registry(data: dict) -> None:
     error = out.pop("_courses_error", None)
     ids = dict(out.pop("_course_ids", None) or {})
     out.pop("_course_labels", None)
-    known ={course_list.norm(w) for w in loaded}
+    known = {course_list.norm(w) for w in loaded}
     added = [w for w in workspaces if course_list.norm(w) not in known]
     now = {course_list.norm(w) for w in workspaces}
     removed = [w for w in loaded if course_list.norm(w) not in now]
@@ -2277,9 +2277,19 @@ def _today() -> str:
 
 def _saved_modes(data: dict) -> list:
     """The named modes, in the order they were saved. Entries without a name
-    or a text are skipped."""
+    or a text are skipped. A registry written before saved modes existed holds
+    `custom_modes`, the remembered Aufträge as plain texts: while it has no
+    `saved_modes`, they are read as modes named after their first words."""
+    stored = data.get("saved_modes")
+    if stored is None:
+        stored, seen = [], set()
+        for text in data.get("custom_modes") or []:
+            name = _shorten(str(text).strip(), 40)
+            if name and name not in seen:
+                seen.add(name)
+                stored.append({"name": name, "text": str(text)})
     out = []
-    for m in data.get("saved_modes") or []:
+    for m in stored or []:
         if not isinstance(m, dict):
             continue
         name, text = str(m.get("name") or "").strip(), str(m.get("text") or "").strip()

@@ -287,6 +287,11 @@ name or `--replaces` replaces the mode in place and keeps its daily state. The b
 the same context as a custom session (time, exams, dossiers; one dossier for a course
 mode), so it can run the new mode in the same session.
 
+A registry written by the version published before 2026-11-20 holds `custom_modes` (the
+last eight Aufträge as plain texts, shown as `↳` rows). `_saved_modes` reads them as modes
+named after their first words while the registry has no `saved_modes`; the first change
+writes `saved_modes` and the old key is not read again.
+
 What the interview asks is in `_mode_builder_head` only. `s` on a `↳` row starts it with
 `revise`: same steps, opening with what the mode does now and the question what should
 change. The menu
