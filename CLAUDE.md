@@ -400,20 +400,19 @@ rule lives in one place instead of a copied paragraph in every course.
 
 ## Quiz cards for the scroller feed: a folder setting, one rule in the prompt
 
-The user's scroller app GifScroll (repo on the ThinkCentre, outside `~/Synced`) takes
+The scroller app Nachschub takes
 quiz cards from every course. The feed folder comes from `STUDY_FEED_DIR` or the
 registry key `feed_dir` (`--set-feed DIR`, `none` turns it off). When it is set and
 exists on the host, `_prompt_common` adds a `<feed_lernkarten>` block: after a review
 that books a Beleg, write 1–2 cards as a new file under `<feed>/lernkarten/<Kurs>/`;
 on arrival, book the answers from `<feed>/lernkarten_antworten/<Kurs>.jsonl`. The
 card format is one card of the Tutor Board `cards` block plus `id`, `muster`,
-`thema`, `hinweis`. Format, answer file, counting rule and the GifScroll side are in
+`thema`, `hinweis`. Format, answer file, counting rule and the Nachschub side are in
 `docs/feed_lernkarten.md`, which both sides follow. Counting rule chosen by the user:
 a wrong answer is a Beleg, a right one may count as the §3b repair check, and
-`Fortschritt:` never moves. Added 2026-11-09 (gardener session); the GifScroll side
-is an open point in `~/Synced/Inbox/2026-11-11_gifscroll-offene-punkte.md`.
+`Fortschritt:` never moves.
 
-Comments and lecture prep (2026-11-12): the phone can comment on a card; the GifScroll job
+Comments and lecture prep (2026-11-12): the phone can comment on a card; the Nachschub job
 writes it to `<feed>/lernkarten_kommentare/<Kurs>.jsonl`, and the brief tells the session to read
 it after the answers (`Feed-Kommentare: gelesen bis …` in `todo.md`): feedback, never a Beleg.
 The evening job also writes lecture-prep cards to `<feed>/lernkarten/VL-<Name>/` (`muster: null`,
@@ -604,7 +603,7 @@ without a person. Invariants:
   `VL-` feed names, topics and slide picks from the evening job's `prep/schedule.py` / `material.py` (imported by file
   location in `_import_feedkit`: `sys.path` restored, feedkit modules dropped from `sys.modules`, no bytecode written into
   the feedkit). Its state is read, never written. The own timetable parser fills in what it lacks or has disabled; any adapter
-  error falls back to the parser with a note (dry run and log). Slide text goes to `cache_dir` outside `~/Synced`.
+  error falls back to the parser with a note (dry run and log). Slide text goes to `cache_dir`, outside every synced folder.
   A failed run sends one message through `<feedkit>/news/outbox.py` (`notify(text)`, loaded by file location, no secrets
   in the text); without a feedkit it stays a log line. Verified against the real outbox: `notify(text, outbox=None, host=None, now=None)`.
   The own timetable parser supplies only courses the feedkit does not know or has disabled (title and registry `key`); an enabled

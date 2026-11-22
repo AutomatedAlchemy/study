@@ -150,66 +150,49 @@ The Gärtner keeps no state and does not count towards the Quickie streak.
 
 ## Wochenvorbereitung
 
-`studyclaude --wochenvorbereitung {woche,morgen,beginn}` bereitet die Termin-Tabs der
-Woche ohne Aufsicht vor. Es ist kein Menümodus: Timer rufen es auf einem Rechner auf, der
-das Board und die Kursordner erreicht (Vorlagen in `templates/systemd/`, nicht
-installiert). Die Logik steht in `wochenvorbereitung.py`, der Start der Engine in
-`_backend_headless` (`main.py`).
+`studyclaude --wochenvorbereitung {woche,morgen,beginn}` prepares the appointment tabs of
+the week on the Tutor Board without supervision. It is not a menu mode. Timers call it on
+a machine that reaches the board and the course folders. Unit templates are in
+`templates/systemd/`; copy and enable them yourself, there is no installer for them.
 
-| Phase | Wann | Was |
+| Phase | When | What |
 |---|---|---|
-| `woche` | Samstag 07:00 | Tabs für alle Termine der kommenden Woche (Mo bis Fr) bauen, `woche-<KW>.json` schreiben |
-| `morgen` | Mo bis Fr 06:30 | Termine von heute: neue Dateien im Materialordner? Dann Tab nachziehen |
-| `beginn` | Mo bis Fr alle 5 Minuten | Termine, deren Beginn 5 bis 20 Minuten zurückliegt: bei +5, +10, +15 prüfen, bei +20 schließen |
+| `woche` | Saturday 07:00 | Build a tab for every appointment of the coming week (Mon to Fri) |
+| `morgen` | Mon to Fri 06:30 | Today's appointments: new files in the material folder? Then extend the tab |
+| `beginn` | Mon to Fri, every 5 minutes | Appointments that began 5 to 20 minutes ago: check at +5, +10, +15, close at +20 |
 
-Neu heißt: ein `file_history`-Zeitstempel in der `METADATA.md` des Materialordners liegt nach
-dem gespeicherten. Der Schlüssel ist der Ordnername, nie `course_title`. Ist nichts neu, läuft
-kein Modell. Ist `last_fetched` zu alt (nicht heute, bzw. nicht vor Beginn −5 Minuten), steht
-„StudOn heute nicht synchronisiert“ als Ergebniszeile im Zustand.
+A file counts as new when its `file_history` timestamp in the material folder's
+`METADATA.md` is later than the stored one. When nothing is new, no model runs. When the
+material was not synchronised today, the run records that instead of a result.
 
-- **Zustand:** je Termin `<state_dir>/termine/<YYYY-MM-DD>_<HHMM>_<slug>.json`, dazu
-  `<state_dir>/woche-<KW>.json`. Der Zustand ersetzt das Herleiten aus `todo.md`.
-- **Konfiguration:** Registry-Schlüssel `wochenvorbereitung`, gesetzt mit
-  `--set-wochenvorbereitung KEY VALUE` (`material_root`, `timetable`, `state_dir`, `env_file`,
-  `engine`, `model`, `skip`, `extras`, `exceptions`, `termin:<Titel>` mit
-  `Kursordner;Materialordner;Board;VL-Name`). Die Stundenplandatei ist eine Markdown-Tabelle
-  `| Tag | Zeit | Veranstaltung | Typ | Gebäude | Dozent | Zeitraum |`.
-- **Board-Link:** steht in einer Env-Datei (Modus 600, Pfad `env_file`, Variable `BOARD_LINK`).
-  Der Lauf tauscht ihn mit `POST /agent/token` gegen einen Bearer. Die Datei fehlt oder ist für
-  andere lesbar: Abbruch mit Code 2.
-- **Werkzeuge:** claude bekommt eine Allow-Liste (`dontAsk`), opencode eine Deny-Liste (`--auto`).
-  Beide kommen aus einer Quelle (`BOARD_ALLOWED` / `BOARD_DENIED`). Erlaubt sind Read, Glob, Grep
-  und `list_boards`, `list_tabs`, `create_tab`, `update_tab`,
-  `append_blocks`, `update_block`. Nie `select_tab`, `clear_board`, `show_board`, `select_board`.
-- **Regeln für Tab-Änderungen:** Der Lauf liest nie den Inhalt eines Tabs, weil `read_board` dem User Abgaben und Klicks
-  wegnehmen würde (Begründung in `CLAUDE.md`). Er sieht nur `list_tabs` (Titel, Fenster, Zähler). Ein Tab mit wartender Eingabe
-  wird übersprungen. Sonst wird angehängt („Neu seit …“). In Ort und Stelle ändert er nur Blöcke eines Tabs, den er selbst
-  gebaut hat, vor Beginn des Termins und nur an den im Zustand gemerkten Block-Ids.
-- **Woche:** `woche` nimmt ab Samstag die nächste Woche, Mo bis Fr die laufende, dann nur Termine, die noch nicht begonnen
-  haben. `--woche JJJJ-Www` erzwingt eine Woche. Wiederkehrende Termine, die weder feedkit noch die Stundenplandatei kennen,
-  stehen in der Registry-Liste `slots` (Setter: `--set-wochenvorbereitung slots '<JSON-Liste>'`, je Eintrag `weekday`, `start`,
+- **Configuration:** registry key `wochenvorbereitung`, set with
+  `--set-wochenvorbereitung KEY VALUE`. Keys: `material_root`, `timetable`, `state_dir`,
+  `cache_dir`, `env_file`, `engine`, `model`, `skip`, `extras`, `exceptions`, `slots`, and
+  `termin:<title>` with the value `course folder;material folder;board;lecture name`.
+- **Timetable:** a Markdown table
+  `| Tag | Zeit | Veranstaltung | Typ | Gebäude | Dozent | Zeitraum |`. Recurring
+  appointments that are not in it go into `slots`
+  (`--set-wochenvorbereitung slots '<JSON list>'`, each entry with `weekday`, `start`,
   `end`, `title`, optional `from`, `to`).
-- **Feed:** Der Lauf liest die letzten 7 Tage aus `lernkarten_antworten/VL-<Name>.jsonl` (falsche erste Antworten) und
-  `lernkarten_kommentare/VL-<Name>.jsonl` und gibt sie als Datenblock `<feed_rueckmeldung>` weiter. Er bucht nichts daraus.
-  Er schreibt je Termin 1 bis 2 Wiederholungskarten, `woche-<KW>.json` nach `<Feed>/wochenvorbereitung/` und ein
-  Vorschaubild (Schalter `vorschau`, Vorgabe an); der tägliche Merge des Feeds nimmt den Part auf, unser Code startet ihn nicht.
-- **Fehler:** Ein gescheiterter Lauf schickt höchstens eine Nachricht über `<feedkit>/news/outbox.py`, ohne Geheimnisse.
-- **Ergebnis:** ein JSON je Lauf (Tab-Id, Thema, Schlüssel, `Bild:`, 1 bis 2 Wiederholungskarten,
-  ein Satz Vorschau). Ein ungültiges Ergebnis zählt als gescheiterter Lauf, es wird nichts
-  geschrieben.
-- **Prüfen:** `--wochenvorbereitung woche --dry-run` druckt Terminliste, Prompt, Befehl (Bearer als
-  `<bearer>`) und Werkzeugliste und schreibt nichts. `--termin ID` erzwingt einen Termin.
-
-- **Quelle der Termine (feedkit):** Ist `feedkit` gesetzt (Ordner des Abend-Jobs, nur auf dem Rechner, auf dem er liegt)
-  und vorhanden, liefert dessen `prep/schedule.py` die Termine samt `VL-`-Feedname, Thema und gewählten Folien
-  (`material.pick_material`). Die eigene Stundenplandatei ergänzt, was dort fehlt oder abgeschaltet ist (gleiches Datum,
-  gleicher Beginn, gleicher normierter Titel zählt als derselbe Termin). Der Folientext (`job.read_text`) kommt in ein
-  Cache-Verzeichnis außerhalb von `~/Synced` (`cache_dir`, Vorgabe `~/.cache/study/wochenvorbereitung`) und wird erst bei einem
-  echten Lauf geschrieben. Der Zustand des Abend-Jobs wird nur gelesen. Der eigene Parser liefert nur Kurse, die der feedkit nicht kennt oder abgeschaltet hat; ein aktiver Kurs, den der feedkit an einem Tag auslässt (`dates`), bleibt draußen. `slots`, `extras` und `exceptions` der Registry erzwingen Termine trotzdem. `notify(text, outbox=None, host=None, now=None)` ist gegen das echte Outbox geprüft. Fällt der Adapter aus, nimmt der Lauf den eigenen
-  Parser und meldet das im Dry-Run (`Hinweis:`) und im Log. Ein Eintrag in `termine` kann mit einem fünften Teil
-  (`...;feed;KOR`) an einen feedkit-Schlüssel gebunden werden; dann zählt dessen Feedname.
-
-Noch nicht gebaut: Änderungen im Abend-Job (liest die Terminliste noch nicht), ein Installer für die Timer.
+- **Week:** from Saturday on, `woche` takes the next week. Monday to Friday it takes the
+  current week and only appointments that have not begun. `--woche YYYY-Www` forces a week.
+- **Board link:** in an env file (mode 600, path `env_file`, variable `BOARD_LINK`). When
+  the file is missing or readable by others, the run stops with exit code 2.
+- **Tools:** the session may read files (Read, Glob, Grep) and call `list_boards`,
+  `list_tabs`, `create_tab`, `update_tab`, `append_blocks` and `update_block`. It never
+  switches the tab or board you are looking at and never clears a board.
+- **Changes to tabs:** the run never reads a tab's content, so your submissions and clicks
+  stay unread for your next session. A tab with input waiting is skipped. Otherwise new
+  material is appended ("Neu seit …"). It edits blocks in place only in a tab it built
+  itself, and only before the appointment begins.
+- **Feed:** with the flashcard feed set up ([feed_lernkarten.md](feed_lernkarten.md)), the
+  run reads the last 7 days of wrong first answers and comments for the lecture and writes
+  1 to 2 review cards per appointment.
+- **State:** one JSON file per appointment and one per week under `state_dir`.
+- **Errors:** a run with an invalid result counts as failed and writes nothing.
+- **Check:** `--wochenvorbereitung woche --dry-run` prints the appointment list, the
+  prompt, the command and the tool list and writes nothing. `--termin ID` forces one
+  appointment.
 
 ## The progress line
 
