@@ -800,7 +800,7 @@ def session_lines(course_dir: str, day: date, limit: int = 8, max_chars: int = 3
     except OSError:
         return []
     iso = day.isoformat()
-    out = [_neutral(ln)[:max_chars] for ln in text.splitlines()
+    out = [_neutral(re.sub(r"^\s*[-*]\s+", "", ln))[:max_chars] for ln in text.splitlines()
            if iso in ln and not _OWN_LINE.search(ln) and not ln.lstrip().startswith(_STATUS_LINES)]
     return out[-limit:]
 

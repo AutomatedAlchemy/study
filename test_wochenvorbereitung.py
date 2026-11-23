@@ -971,7 +971,7 @@ def test_session_lines_skip_own_lines_status_lines_and_old_files(tmp_path):
     todo.write_text("Fortschritt: 3/10 Häppchen\nÜbersicht: bestätigt 2026-11-23\n"
                     "- 2026-11-23 Wochenvorbereitung Korrosion 12:15: Thema vermutet: X. Bild: keins [wv:a]\n"
                     "- 2026-11-23 Nachbereitung Korrosion 12:15: X. Bild: keins [nb:a]\n"
-                    "2026-11-23 16:03 Thema der VL bestätigt: Passivfilme\n"
+                    "- 2026-11-23 16:03 Thema der VL bestätigt: Passivfilme\n"
                     "2026-11-20 H02 reviewt\n", encoding="utf-8")
     _touch(todo, datetime(2026, 11, 23, 18, 0))
     assert wv.session_lines(str(tmp_path), date(2026, 11, 23)) == ["2026-11-23 16:03 Thema der VL bestätigt: Passivfilme"]
