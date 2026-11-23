@@ -581,7 +581,7 @@ build may still carry a model this one does not know, and that value falls back 
 | `templates/media/*.md` | per-medium mechanics, appended to the system prompt |
 | `templates/tools/blatt_finder.py` | Blatt-Finder: validates a question→sheet mapping and builds the page; `--help` is the procedure |
 | `wochenvorbereitung.py` | Wochenvorbereitung logic (config, timetable, state, phases, prompt, result schema, cards, tool lists); pure, stdlib |
-| `templates/systemd/*` | timer and service templates for the three phases; not installed by the launcher |
+| `templates/systemd/*` | timer and service templates for the four phases; not installed by the launcher |
 | `test_wochenvorbereitung.py` | offline tests for that mode |
 | `test_studyclaude.py` | offline tests — behaviour only, no network, no launch |
 | `requirements.txt` | empty by design; stdlib only |
@@ -642,6 +642,36 @@ without a person. Invariants:
 - **Week preview:** `woche` renders one PNG (Pillow, lazy import) into `cache_dir`, copies it to `<feed>/pngs/` and
   appends one line to `.parts/wochenvorschau.jsonl`. It never runs `merge_check`: the feed's daily merge picks it up.
   Switch `vorschau` (default on); skipped in a dry run.
+- **`abend`, the Nachbereitung (2026-11-23, user):** appends to the appointment's tab, by default daily at 20:15
+  (set the timer after the feed job that exports the day's answers, if one runs). It needs evidence of what was covered, collected by the script: `notes_of_day` (files in the
+  material folder changed that day that are not in `file_history`), new StudOn files, `session_lines` (lines of the
+  course's `todo.md` with that date, without the tool's own `[wv:…]` / `[nb:…]` lines and the status lines). No
+  evidence, no model run; the phase then stays open on the day itself and closes the evening after. The prepared topic
+  alone is no evidence (two of three topics were guesses on the first day). `render_xopp` draws a Xournal++ file with
+  Pillow (strokes, pasted images, typed text) into `cache_dir`, because the model cannot read gzip and a timer has
+  no display for `xournalpp --create-pdf`. The state keeps the preparation's `thema`, `vorschau` and
+  `bloecke`; the Nachbereitung has its own key `nachbereitung`. Cards go to `<stamp>-nb-<slug>.json`, numbered from 3
+  (the preparation has 1 and 2), and expire `NACH_CARD_DAYS` after the appointment. A model skip on the day itself
+  (input waiting) does not close the phase. The same no-read rule holds: reviewing stays with the sessions.
+- **Day without appointments (`morgen`, registry switch `frei`, default off):** `plan_free_day` builds one
+  Wiederholungs-Tab when a course with a `termin:` entry has session lines of the day before. The stand-in
+  `free_day_appointment` gives it an id (`<date>_0000_wiederholung-<course>`), a state file and a card file. Activity
+  is read from `todo.md`, not from the board: `list_boards` only has `last_opened_days_ago`, and the run's own
+  `select_board` may count as opening. `open_free_tab` blocks a new tab while an earlier one of the last
+  `FREE_OPEN_DAYS` days is named in no session line (one Häppchen at a time, without reading a tab). The evening run
+  does nothing on such a day: there is no lecture material and it may not read what was handed in.
+- **Feed games (`morgen`, registry switch `spiele`, default off; 2026-11-23, user):** per appointment of the day 3 to
+  5 cards in the field `spiele`: the four games and the word puzzle of docs/feed_lernkarten.md plus quiz cards. A plan
+  that runs anyway (build, update, free day) carries `games`; an appointment with a tab and nothing new gets a run of
+  its own, mode `karten`, with no bearer, no MCP server and only Read, Glob, Grep (`_backend_headless(bearer=None)`).
+  The morning after, an appointment whose state has `nachbereitung` gets games on that topic (`games == "nach"`), with
+  the same evidence the evening run had. `validate_card(card, GAME_WIDGETS)` checks the contract (`_game_errors`);
+  `valid_games` drops a bad card instead of failing the result, because by then the model may have built a tab, and an
+  invalid result would lose its state. Only a `karten` run that brings no usable card counts as failed. Files:
+  `<stamp>-sp-<slug>.json` (numbers from 5, expires with the appointment) and `<stamp>-ns-<slug>.json` (from 10, stays
+  `NACH_CARD_DAYS`), `zweck: "spiel"`, `muster: null`, table `CARD_KINDS`. The state key `spiele` (`vor`, `nach`) makes
+  each happen once. No feed folder switches the games off for the run. The script cannot check that a game's answer is
+  right, only that it fits the lists.
 - Not built yet: the evening job reading `woche-<KW>.json`, timer installation, PDF text cache.
 
 ## Gotchas

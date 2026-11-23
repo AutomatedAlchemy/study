@@ -1,9 +1,11 @@
-# Template. Mo-Fr 06:30: Termine von heute prüfen.
+# Template. Täglich 05:30: Termine von heute prüfen. An einem Tag ohne Termin baut der Lauf
+# einen Wiederholungs-Tab, wenn am Vortag eine Session lief und der Schalter `frei` an ist.
+# Mit dem Schalter `spiele` schreibt er dazu Spielkarten für den Feed.
 [Unit]
 Description=study Wochenvorbereitung (morgen)
 
 [Timer]
-OnCalendar=Mon..Fri *-*-* 06:30:00
+OnCalendar=*-*-* 05:30:00
 Persistent=false
 
 [Install]

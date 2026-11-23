@@ -943,3 +943,336 @@ def test_unattended_prompt_builds_only_appointment_tabs():
         assert banned not in prompt, banned
     assert "Tabs zu einem Termin bekommen ihr Zeitfenster" in prompt and "Termin-Tabs können schon bestehen" in prompt
     assert "Kein anderer Tab wird angelegt, verschoben, angepinnt oder umbenannt" in prompt
+
+
+# --- abend (Nachbereitung) and the morning of a day without appointments ----------
+def _touch(path, when):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if not path.exists():
+        path.write_text("x", encoding="utf-8")
+    os.utime(path, (when.timestamp(), when.timestamp()))
+
+
+def test_notes_of_day_are_todays_files_that_studon_did_not_bring(tmp_path):
+    day = datetime(2026, 11, 23, 15, 0)
+    _touch(tmp_path / "2311.xopp", day)
+    _touch(tmp_path / "sub" / "skizze.png", day)
+    _touch(tmp_path / "3_Passive films.pdf", day)          # from file_history: new material, not a note
+    _touch(tmp_path / "alt.xopp", day - timedelta(days=3))
+    _touch(tmp_path / "METADATA.md", day)
+    _touch(tmp_path / "video.mp4", day)
+    found = wv.notes_of_day(tmp_path, day.date(), ["3_Passive films.pdf"])
+    assert sorted(p.name for p in found) == ["2311.xopp", "skizze.png"]
+    assert wv.notes_of_day(tmp_path / "fehlt", day.date()) == []
+
+
+def test_session_lines_skip_own_lines_status_lines_and_old_files(tmp_path):
+    todo = tmp_path / "todo.md"
+    todo.write_text("Fortschritt: 3/10 Häppchen\nÜbersicht: bestätigt 2026-11-23\n"
+                    "- 2026-11-23 Wochenvorbereitung Korrosion 12:15: Thema vermutet: X. Bild: keins [wv:a]\n"
+                    "- 2026-11-23 Nachbereitung Korrosion 12:15: X. Bild: keins [nb:a]\n"
+                    "2026-11-23 16:03 Thema der VL bestätigt: Passivfilme\n"
+                    "2026-11-20 H02 reviewt\n", encoding="utf-8")
+    _touch(todo, datetime(2026, 11, 23, 18, 0))
+    assert wv.session_lines(str(tmp_path), date(2026, 11, 23)) == ["2026-11-23 16:03 Thema der VL bestätigt: Passivfilme"]
+    assert wv.session_lines(str(tmp_path), date(2026, 11, 22)) == []
+    assert wv.session_lines(str(tmp_path / "fehlt"), date(2026, 11, 23)) == []
+    _touch(todo, datetime(2026, 11, 20, 9, 0))             # not changed on or after the day: a plan, no trace
+    assert wv.session_lines(str(tmp_path), date(2026, 11, 23)) == []
+
+
+def test_render_xopp_draws_the_written_pages(tmp_path):
+    pytest.importorskip("PIL")
+    import gzip
+    xml = ('<?xml version="1.0"?><xournal><page width="100" height="50">'
+           '<background type="solid" color="#ffffffff" style="plain"/><layer>'
+           '<stroke tool="pen" color="#000000ff" width="2 1 1">10 10 90 40</stroke>'
+           '<stroke tool="highlighter" color="#ffff00ff" width="9">0 0 99 49</stroke></layer></page>'
+           '<page width="100" height="50"><background type="solid" color="#ffffffff"/><layer/></page></xournal>')
+    src = tmp_path / "n.xopp"
+    with gzip.open(src, "wb") as fh:
+        fh.write(xml.encode())
+    pages = wv.render_xopp(src, tmp_path / "cache", "t-n")
+    assert [p.name for p in pages] == ["t-n-s01.png"]         # the empty page is left out
+    from PIL import Image
+    img = Image.open(pages[0])
+    assert img.size == (200, 100) and img.getpixel((100, 50)) == (0, 0, 0) and img.getpixel((5, 95)) == (255, 255, 255)
+    assert os.stat(pages[0]).st_mode & 0o777 == 0o600
+    (tmp_path / "kaputt.xopp").write_bytes(b"kein gzip")
+    assert wv.render_xopp(tmp_path / "kaputt.xopp", tmp_path / "cache", "k") == []
+    with gzip.open(tmp_path / "entity.xopp", "wb") as fh:
+        fh.write(b'<!DOCTYPE x [<!ENTITY a "b">]><xournal/>')
+    assert wv.render_xopp(tmp_path / "entity.xopp", tmp_path / "cache", "e") == []
+
+
+def test_abend_runs_only_with_a_tab_and_evidence(env):
+    evening = datetime(2026, 11, 23, 20, 15)
+    cfg, appts, plans = _plans(env, "abend", evening)
+    kor = appts[0]
+    assert [p.appt.id for p in plans] == [kor.id]              # only the appointment that has ended today
+    assert not plans[0].run and plans[0].result_line == "Nachbereitung: kein Termin-Tab" and plans[0].close_phase
+    mats = {e.material: wv.read_material(cfg.material_root, e.material) for e in cfg.entries.values()}
+    seen = seen_state(cfg, kor, "2026-11-04T07:25:20.216793", thema="Passivfilme")
+
+    def plan(now, evidence=None, state=seen):
+        return wv.plan_phase("abend", now, appts, cfg, {kor.id: state}, mats, None, evidence)
+
+    none = plan(evening)[0]                                     # a tab, nothing new, no notes, no session
+    assert not none.run and none.result_line.endswith("kein Beleg, was dran war") and not none.close_phase
+    assert plan(evening + timedelta(days=1))[0].close_phase     # the evening after closes the phase
+    assert kor.id not in [p.appt.id for p in plan(evening + timedelta(days=2))]   # two days later: too old
+    assert plan(datetime(2026, 11, 23, 13, 0)) == []            # not ended yet
+    hit = plan(evening, {kor.id: {"notes": [Path("/m/2311.xopp")], "lines": ["2026-11-23 Thema bestätigt"]}})[0]
+    assert hit.mode == "nach" and hit.close_phase and not hit.in_place and hit.state["tab_id"] == "t1"
+    assert hit.notes == [Path("/m/2311.xopp")] and hit.lines == ["2026-11-23 Thema bestätigt"]
+    assert plan(evening, state=dict(seen, file_history_seen="2026-10-30T00:00:00"))[0].mode == "nach"   # new slides
+    done = plan(evening, {kor.id: {"lines": ["x"]}}, dict(seen, phasen=["abend"]))[0]
+    assert not done.run and "schon erledigt" in done.reason
+    msg = wv.build_task_message([hit], evening, cfg)
+    for must in ("Nachbereitung anhängen (Tab t1", "nb_korrektur", "Vorbereitetes Thema", "Passivfilme",
+                 "2311.xopp", "Session-Einträge vom 23.11.", "Thema bestätigt"):
+        assert must in msg, must
+
+
+def test_nach_result_keeps_the_preparation_and_writes_its_own_cards_and_line(env):
+    evening = datetime(2026, 11, 23, 20, 15)
+    cfg, appts, _ = _plans(env, "abend", evening)
+    kor = appts[0]
+    state = dict(seen_state(cfg, kor, None, thema="Vermutung", vorschau="alt"), bloecke={"a": "b1"})
+    plan = wv.Plan(kor, cfg.entry_for(kor.title), "nach", "Notiz", lines=["x"])
+    item = dict(good_item(kor.id), aktion="angehaengt", thema="Passivfilme laut Notizen", thema_quelle="notizen",
+                bloecke={"nb": "nb_text"})
+    assert wv.validate_result({"termine": [item]}, [kor.id]) == []
+    st = wv.apply_nach(state, item, plan, evening)
+    assert st["thema"] == "Vermutung" and st["vorschau"] == "alt" and st["bloecke"] == {"a": "b1"}
+    assert st["nachbereitung"]["thema"] == "Passivfilme laut Notizen" and st["nachbereitung"]["bloecke"] == {"nb": "nb_text"}
+    assert st["ergebnis"].startswith("Nachbereitung angehängt")
+    name, content = wv.build_card_file("Kurs_K", kor, [good_card()], evening, "nb")
+    prep_name, prep = wv.build_card_file("Kurs_K", kor, [good_card(), good_card(front="Andere?")], evening)
+    stamp = f"{kor.start:%Y%m%d-%H%M}"
+    assert name == f"{stamp}-nb-korrosion-und-oberflaechentechnik.json" and name != prep_name
+    assert content["cards"][0]["id"] == f"Kurs_K-{stamp}-3"
+    assert not {c["id"] for c in content["cards"]} & {c["id"] for c in prep["cards"]}
+    assert content["expires_at"].startswith("2026-11-30T13:45:00") and content["quelle"].startswith("Nachbereitung ")
+    kurs = str(env / "kurs-k")
+    line = wv.nach_todo_line(kor, "Passivfilme", "Bild: keins", "t1")
+    assert wv.append_todo_line(kurs, wv.todo_line(kor, "Passivfilme", "Bild: keins", "vermutet"))
+    assert wv.append_todo_line(kurs, line) and not wv.append_todo_line(kurs, line)
+    _touch(env / "kurs-k" / "todo.md", evening)
+    assert wv.session_lines(kurs, kor.date) == []               # both lines are the tool's own
+
+
+def test_free_day_builds_one_tab_only_when_switched_on_and_yesterday_had_a_session(env):
+    sunday = datetime(2026, 11, 29, 5, 30)
+    off = wv.load_config(registry(env))
+    course = next(iter(off.entries.values())).course
+    lines = {course: ["2026-11-28 H03 reviewt", "2026-11-28 H04 gebaut"]}
+    assert wv.plan_free_day(sunday, off, lines) is None                        # switch off (the default)
+    cfg = dataclasses.replace(off, frei=True)
+    assert wv.plan_free_day(sunday, cfg, {}) is None and wv.plan_free_day(sunday, cfg, {course: []}) is None
+    assert wv.plan_free_day(sunday, cfg, {"/kein/kurs": ["x"]}) is None        # a course without a board entry
+    plan = wv.plan_free_day(sunday, cfg, lines)
+    assert plan.mode == "frei" and plan.close_phase and plan.lines == lines[course]
+    assert plan.appt.id.startswith("2026-11-29_0000_wiederholung-") and plan.entry.course == course
+    msg = wv.build_task_message([plan], sunday, cfg)
+    assert "ohne Zeitfenster" in msg and "Session-Einträge vom 28.11." in msg and "H03 reviewt" in msg
+    # yesterday's Wiederholungs-Tab that no session names blocks a new one
+    before = wv.free_day_appointment(sunday.date() - timedelta(days=1), course)
+    wv.write_state(wv.state_path(cfg.state_dir, before), dict(wv.new_state(before, plan.entry), tab_id="w1128"))
+    blocked = wv.plan_free_day(sunday, cfg, lines)
+    assert not blocked.run and "w1128" in blocked.result_line
+    Path(course).mkdir(parents=True, exist_ok=True)
+    (Path(course) / "todo.md").write_text("2026-11-28 Tab w1128 reviewt\n", encoding="utf-8")
+    assert wv.plan_free_day(sunday, cfg, lines).mode == "frei"
+    wv.write_state(wv.state_path(cfg.state_dir, plan.appt), dict(wv.new_state(plan.appt, plan.entry), phasen=["morgen"]))
+    assert not wv.plan_free_day(sunday, cfg, lines).run
+    assert wv.set_value({}, "frei", "on") == "frei gesetzt"
+
+
+def test_abend_run_appends_once_and_a_skip_on_the_day_stays_open(env, monkeypatch):
+    feed = env / "feed"
+    feed.mkdir()
+    monkeypatch.setenv("STUDY_FEED_DIR", str(feed))
+    monkeypatch.setenv("STUDY_WV_NOW", "2026-11-23T20:15:00")
+    monkeypatch.setattr(sys, "argv", ["study", "--engine", "claude", "--wochenvorbereitung", "abend"])
+    monkeypatch.setattr(m, "_fetch_bearer", lambda link: "TOK")
+    monkeypatch.setattr(m, "_select_board", lambda *a: None)
+    cfg = wv.load_config(registry(env))
+    kor = wv.appointments_for_week(wv.parse_timetable(TIMETABLE), 2026, 48, skip=cfg.skip)[0]
+    path = wv.state_path(cfg.state_dir, kor)
+    wv.write_state(path, seen_state(cfg, kor, "2026-11-04T07:25:20.216793", thema="Vermutung", phasen=["woche"]))
+    calls = []
+
+    def fake(skip):
+        def run(argv, env_, cwd, timeout):
+            calls.append(argv[2])
+            item = ({"termin": kor.id, "aktion": "uebersprungen", "grund": "Eingabe wartet"} if skip
+                    else dict(good_item(kor.id), aktion="angehaengt", thema_quelle="session"))
+            return json.dumps({"type": "result", "result": json.dumps({"termine": [item]})})
+        return run
+    monkeypatch.setattr(m, "_wv_run_engine", fake(True))
+    assert m._main() == 0 and not calls                       # no evidence: no model run, phase open
+    assert "abend" not in wv.read_state(path)["phasen"]
+    todo = env / "kurs-k" / "todo.md"
+    todo.write_text(todo.read_text() + "2026-11-23 13:50 Thema der VL bestätigt: Passivfilme\n", encoding="utf-8")
+    _touch(todo, datetime(2026, 11, 23, 13, 50))
+    assert m._main() == 0 and len(calls) == 1                 # skipped by the model on the day itself
+    assert "Nachbereitung anhängen (Tab t1" in calls[0] and "Thema der VL bestätigt" in calls[0]
+    st = wv.read_state(path)
+    assert "abend" not in st["phasen"] and st["ergebnis"].startswith("übersprungen")
+    monkeypatch.setattr(m, "_wv_run_engine", fake(False))
+    assert m._main() == 0 and len(calls) == 2
+    st = wv.read_state(path)
+    assert "abend" in st["phasen"] and st["thema"] == "Vermutung" and st["nachbereitung"]["thema"] == "Passivfilme"
+    assert "[nb:" in todo.read_text() and list((feed / "lernkarten" / "kurs-k").glob("*-nb-*.json"))
+    assert m._main() == 0 and len(calls) == 2                 # done: the phase does not run twice
+
+
+# --- feed games (switch `spiele`) -----------------------------------------------------
+def game(engine, params, answer, **kw):
+    return good_card(input={"widget": "game", "engine": engine, "template": engine, "params": params},
+                     answer=answer, **kw)
+
+
+GAMES = {
+    "sort": game("sort", {"items": ["α-Fe", "Cu", "Mg", "Al", "Ti"], "bins": ["krz", "kfz", "hdp"]}, [0, 1, 2, 1, 2]),
+    "order": game("order", {"items": ["Sintern", "Pulver mischen", "Nachbearbeiten", "Pressen"], "timer_s": 60},
+                  [1, 3, 0, 2]),
+    "match": game("match", {"left": ["Austenit", "Martensit", "Zementit"],
+                            "right": ["Fe3C", "γ-Fe", "tetragonal verzerrt"]}, [1, 2, 0]),
+    "cloze": game("cloze", {"text": "Austenit zerfällt in ___ (krz) und ___ (Fe3C).",
+                            "chips": ["Ferrit", "Zementit", "Martensit"]}, [0, 1]),
+    "word": good_card(front="Gefüge aus Ferrit- und Zementitlamellen, 6 Buchstaben.", input={"widget": "word"},
+                      answer="Perlit"),
+}
+
+
+def test_game_cards_follow_the_feed_contract():
+    for name, card in GAMES.items():
+        assert wv.validate_card(card, wv.GAME_WIDGETS) == [], name
+        assert wv.validate_card(card)                                  # a review card may not be a game
+    bad = [
+        game("sort", {"items": ["a", "b", "c", "d"], "bins": ["x", "y"]}, [0, 1, 2, 0]),          # bin index out of range
+        game("sort", {"items": ["a", "b", "c"], "bins": ["x", "y"]}, [0, 1, 0]),                  # too few items
+        game("order", {"items": ["a", "b", "c"]}, [0, 0, 1]),                                      # no permutation
+        game("order", {"items": ["a", "a", "c"]}, [0, 1, 2]),                                      # a text twice
+        game("order", {"items": ["a", "b", "c"], "hint": "x"}, [0, 1, 2]),                         # an extra key
+        game("order", {"items": ["a", "b", "c"], "timer_s": 5}, [0, 1, 2]),
+        game("match", {"left": ["a", "b", "c"], "right": ["x", "y"]}, [0, 1, 0]),                  # unequal lists
+        game("match", {"left": ["a", "b", "c"], "right": ["x", "y", "z"]}, [True, 1, 2]),          # a bool is no index
+        game("cloze", {"text": "A ____ B", "chips": ["x", "y"]}, [0]),                             # four underscores
+        game("cloze", {"text": "A ___ B ___", "chips": ["x", "y"]}, [0, 0]),                       # one chip twice
+        game("cloze", {"text": "ohne Lücke", "chips": ["x", "y"]}, []),
+        game("quiz", {"items": ["a", "b", "c"]}, [0, 1, 2]),
+        dict(GAMES["order"], input=dict(GAMES["order"]["input"], template="sort")),
+        good_card(input={"widget": "word"}, answer="AB"),
+        good_card(input={"widget": "word"}, answer="Fe-C"),
+        good_card(input={"widget": "word", "options": ["a"]}, answer="PERLIT"),
+        good_card(front="Was ist Perlit?", input={"widget": "word"}, answer="perlit"),             # the word in front
+        game("order", {"items": ["a", "<b>", "c"]}, [0, 1, 2]),                                    # markup in a game text
+    ]
+    for card in bad:
+        assert wv.validate_card(card, wv.GAME_WIDGETS), card["input"]
+    good, problems = wv.valid_games([GAMES["sort"], bad[0], GAMES["sort"], GAMES["word"], "kein Objekt"])
+    assert good == [GAMES["sort"], GAMES["word"]] and len(problems) == 3
+    assert wv.valid_games(None) == ([], [])
+    assert wv.validate_card(good_card(input={"widget": "word"}, answer="Straße"), wv.GAME_WIDGETS) == []   # stored as STRASSE
+    assert len(wv.valid_games([dict(GAMES["word"], front=f"Hinweis {i}") for i in range(8)])[0]) == wv.GAMES_MAX
+
+
+def test_game_files_have_their_own_names_numbers_and_expiry():
+    appt = wv.appointments_for_week(wv.parse_timetable(TIMETABLE), 2026, 48)[0]
+    now = datetime(2026, 11, 23, 5, 30)
+    stamp = f"{appt.start:%Y%m%d-%H%M}"
+    name, content = wv.build_card_file("Kurs_K", appt, [GAMES["match"], GAMES["word"]], now, "sp")
+    assert name == f"{stamp}-sp-korrosion-und-oberflaechentechnik.json"
+    assert [c["id"] for c in content["cards"]] == [f"Kurs_K-{stamp}-5", f"Kurs_K-{stamp}-6"]
+    assert content["cards"][1]["answer"] == "PERLIT" and content["cards"][0]["zweck"] == "spiel"
+    assert content["cards"][0]["muster"] is None and content["expires_at"].startswith("2026-11-23T13:45:00")
+    name2, after = wv.build_card_file("Kurs_K", appt, [GAMES["cloze"]], now, "ns")
+    assert name2 == f"{stamp}-ns-korrosion-und-oberflaechentechnik.json"
+    assert after["cards"][0]["id"] == f"Kurs_K-{stamp}-10" and after["expires_at"].startswith("2026-11-30T13:45:00")
+    with pytest.raises(ValueError):
+        wv.build_card_file("Kurs_K", appt, [GAMES["match"]], now)       # a review file takes no game
+    ids = set()
+    for kind, cards in (("wv", [good_card(), good_card(front="B?")]), ("nb", [good_card(), good_card(front="B?")]),
+                        ("sp", [dict(GAMES["word"], front=f"H {i}") for i in range(5)]),
+                        ("ns", [dict(GAMES["word"], front=f"H {i}") for i in range(5)])):
+        new = {c["id"] for c in wv.build_card_file("Kurs_K", appt, cards, now, kind)[1]["cards"]}
+        assert not new & ids                                             # no id twice across the four files
+        ids |= new
+
+
+def test_morgen_asks_for_games_only_with_the_switch(env):
+    morning = datetime(2026, 11, 23, 5, 30)
+    cfg, appts, _ = _plans(env, "woche", datetime(2026, 11, 21, 7))
+    kor = appts[0]
+    mats = {e.material: wv.read_material(cfg.material_root, e.material) for e in cfg.entries.values()}
+    seen = seen_state(cfg, kor, "2026-11-04T07:25:20.216793", thema="Passivfilme")
+
+    def plan(now, state, conf=None, evidence=None):
+        return wv.plan_phase("morgen", now, appts, conf or on, {kor.id: state}, mats, None, evidence)
+
+    on = dataclasses.replace(cfg, spiele=True)
+    assert [p.mode for p in plan(morning, seen, cfg)] == ["none"]                      # switch off: as before
+    cards = plan(morning, seen)[0]
+    assert cards.mode == "karten" and cards.games == "vor" and cards.close_phase and not cards.in_place
+    assert cards.result_line == "StudOn heute nicht synchronisiert"                    # the outcome is kept
+    both = plan(morning, dict(seen, file_history_seen="2026-10-30T00:00:00"))[0]
+    assert both.mode == "update" and both.games == "vor"                               # one run for tab and games
+    assert plan(morning, dict(seen, spiele={"vor": {"anzahl": 3}}))[0].mode == "none"
+    assert plan(morning, dict(seen, tab_id=None, thema=None, file_history_seen="2026-11-04T07:25:20.216793"))[0].mode == "none"
+    msg = wv.build_task_message([cards], morning, on)
+    assert "nur Spiele für den Feed" in msg and "kein Board-Werkzeug" in msg and "zur Vorbereitung auf diesen Termin" in msg
+    # the morning after: games on what the Nachbereitung covered, once
+    tuesday = datetime(2026, 11, 24, 5, 30)
+    after = dict(seen, phasen=["morgen", "abend"], nachbereitung={"thema": "Passivfilme laut Notizen"})
+    assert plan(tuesday, dict(seen, phasen=["morgen"])) == []                          # no Nachbereitung, no games
+    nach = plan(tuesday, after, evidence={kor.id: {"lines": ["2026-11-23 Thema bestätigt"]}})[0]
+    assert nach.mode == "karten" and nach.games == "nach" and not nach.close_phase and nach.lines
+    assert "Passivfilme laut Notizen" in wv.build_task_message([nach], tuesday, on)
+    assert plan(tuesday, dict(after, spiele={"nach": {"anzahl": 4}})) == []
+    assert plan(tuesday, after, cfg) == []
+    item = {"termin": kor.id, "aktion": "karten", "spiele": [GAMES["sort"]]}
+    assert wv.validate_result({"termine": [item]}, [kor.id], 1, {kor.id}) == []
+    assert wv.validate_result({"termine": [item]}, [kor.id])                           # not asked for: invalid
+    assert wv.validate_result({"termine": [good_item(kor.id)]}, [kor.id], 1, {kor.id})  # asked for games, got a tab
+
+
+def test_games_only_run_needs_no_board_and_writes_once(env, monkeypatch):
+    feed = env / "feed"
+    feed.mkdir()
+    reg = registry(env, spiele="on")
+    (env / "registry.json").write_text(json.dumps({**reg, "migrated": True}), encoding="utf-8")
+    monkeypatch.setenv("STUDY_FEED_DIR", str(feed))
+    monkeypatch.setenv("STUDY_WV_NOW", "2026-11-23T05:30:00")
+    monkeypatch.setattr(sys, "argv", ["study", "--engine", "claude", "--wochenvorbereitung", "morgen"])
+    monkeypatch.setattr(m, "_fetch_bearer", lambda link: pytest.fail("a games run must not fetch a bearer"))
+    monkeypatch.setattr(m, "_select_board", lambda *a: pytest.fail("a games run must not select a board"))
+    (env / "board.env").unlink()                               # no board link needed either
+    cfg = wv.load_config(reg)
+    kor = wv.appointments_for_week(wv.parse_timetable(TIMETABLE), 2026, 48, skip=cfg.skip)[0]
+    path = wv.state_path(cfg.state_dir, kor)
+    wv.write_state(path, seen_state(cfg, kor, "2026-11-04T07:25:20.216793", thema="Passivfilme"))
+    calls = []
+
+    def run(argv, env_, cwd, timeout):
+        calls.append(argv)
+        item = {"termin": kor.id, "aktion": "karten",
+                "spiele": [GAMES["sort"], game("order", {"items": ["a", "b"]}, [0, 1]), GAMES["word"]]}
+        return json.dumps({"type": "result", "result": json.dumps({"termine": [item]})})
+    monkeypatch.setattr(m, "_wv_run_engine", run)
+    assert m._main() == 0 and len(calls) == 1
+    argv = calls[0]
+    assert "--mcp-config" not in argv and argv[-1] == "Read,Glob,Grep" and "tutor-board" not in argv[-1]
+    st = wv.read_state(path)
+    assert st["spiele"]["vor"]["anzahl"] == 2 and "morgen" in st["phasen"] and st["tab_id"] == "t1"
+    content = json.loads(next((feed / "lernkarten" / "kurs-k").glob("*-sp-*.json")).read_text())
+    assert [c["input"]["widget"] for c in content["cards"]] == ["game", "word"]         # the bad game is dropped
+    assert "Wochenvorbereitung" not in (env / "kurs-k" / "todo.md").read_text()        # cards are no tab: no line
+    assert m._main() == 0 and len(calls) == 1                                          # once per appointment
+    # a run that brings no usable game counts as failed and leaves the phase open for nothing: state unchanged
+    wv.write_state(path, seen_state(cfg, kor, "2026-11-04T07:25:20.216793", thema="Passivfilme"))
+    monkeypatch.setattr(m, "_wv_run_engine", lambda *a: json.dumps(
+        {"type": "result", "result": json.dumps({"termine": [{"termin": kor.id, "aktion": "karten", "spiele": []}]})}))
+    assert m._main() == 1 and "spiele" not in wv.read_state(path)

@@ -1,0 +1,12 @@
+# Template. Täglich 20:15: Nachbereitung der Termine von heute an den Termin-Tab anhängen.
+# Läuft ein Feed-Job, der abends die Antworten des Tages exportiert: diese Zeit danach legen.
+# Auch am Wochenende: ein Termin vom Freitag ohne Beleg wird am Samstag einmal nachgeholt.
+[Unit]
+Description=study Wochenvorbereitung (abend)
+
+[Timer]
+OnCalendar=*-*-* 20:15:00
+Persistent=false
+
+[Install]
+WantedBy=timers.target

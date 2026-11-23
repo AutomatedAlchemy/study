@@ -150,7 +150,7 @@ The Gärtner keeps no state and does not count towards the Quickie streak.
 
 ## Wochenvorbereitung
 
-`studyclaude --wochenvorbereitung {woche,morgen,beginn}` prepares the appointment tabs of
+`studyclaude --wochenvorbereitung {woche,morgen,beginn,abend}` prepares the appointment tabs of
 the week on the Tutor Board without supervision. It is not a menu mode. Timers call it on
 a machine that reaches the board and the course folders. Unit templates are in
 `templates/systemd/`; copy and enable them yourself, there is no installer for them.
@@ -158,16 +158,39 @@ a machine that reaches the board and the course folders. Unit templates are in
 | Phase | When | What |
 |---|---|---|
 | `woche` | Saturday 07:00 | Build a tab for every appointment of the coming week (Mon to Fri) |
-| `morgen` | Mon to Fri 06:30 | Today's appointments: new files in the material folder? Then extend the tab |
+| `morgen` | daily 05:30 | Today's appointments: new files in the material folder? Then extend the tab. On a day without appointments: one Wiederholungs-Tab, see below |
 | `beginn` | Mon to Fri, every 5 minutes | Appointments that began 5 to 20 minutes ago: check at +5, +10, +15, close at +20 |
+| `abend` | daily 20:15 | Nachbereitung: for each appointment of today that has ended, append what was covered and 4 to 6 questions to its tab |
 
 A file counts as new when its `file_history` timestamp in the material folder's
 `METADATA.md` is later than the stored one. When nothing is new, no model runs. When the
 material was not synchronised today, the run records that instead of a result.
 
+- **Nachbereitung (`abend`):** it runs for an appointment only when something says what was
+  covered: a file you changed in the material folder that day (a Xournal++ file, a photo, a
+  PDF), new files from StudOn, or a line with that day's date that a session wrote into the
+  course's `todo.md`. A Xournal++ file is rendered to images first, so the handwriting can be
+  read. Without any of these nothing is appended, and the next evening tries once more. It
+  appends to the appointment's tab (block ids `nb_…`), never reads your submissions and never
+  reviews them. It writes 1 to 2 cards that stay in the feed for 7 days and one line
+  `Nachbereitung …` into `todo.md`. The timer runs after the feed's evening job, so today's
+  answers are exported already. On a day without appointments it does nothing.
+- **Day without appointments (`morgen`, switch `frei`):** when the day before has a session
+  line in the `todo.md` of a course that has an entry under `termin:`, the run builds one
+  Wiederholungs-Tab on that course's board: 5 to 7 tasks on the top Fehlermuster and on what
+  those lines name, no window, no new material. The course with the most lines gets it. No
+  new tab while an earlier one of the last 7 days is not named in any session line. Off by
+  default: `--set-wochenvorbereitung frei on`.
+- **Feed games (`morgen`, switch `spiele`):** with the flashcard feed set up, the morning run
+  also writes 3 to 5 cards per appointment of the day: matching, ordering, sorting, a cloze
+  text, a word puzzle and quiz questions on what the slides say you should know before the
+  lecture. They expire when the appointment ends. The morning after a Nachbereitung it writes
+  the same kind of cards on what was covered; those stay 7 days. A run that only writes these
+  cards gets no board access at all. Nothing is booked from them (`muster: null`). Off by
+  default: `--set-wochenvorbereitung spiele on`.
 - **Configuration:** registry key `wochenvorbereitung`, set with
   `--set-wochenvorbereitung KEY VALUE`. Keys: `material_root`, `timetable`, `state_dir`,
-  `cache_dir`, `env_file`, `engine`, `model`, `skip`, `extras`, `exceptions`, `slots`, and
+  `cache_dir`, `env_file`, `engine`, `model`, `skip`, `extras`, `exceptions`, `slots`, `frei`, `spiele`, and
   `termin:<title>` with the value `course folder;material folder;board;lecture name`.
 - **Timetable:** a Markdown table
   `| Tag | Zeit | Veranstaltung | Typ | Gebäude | Dozent | Zeitraum |`. Recurring

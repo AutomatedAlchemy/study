@@ -113,7 +113,7 @@ into `_archiv/` beside it · `q` quits. Untouched for ten seconds it autostarts 
 | `openstudy --begleiter` | Begleiter (the default): one session over all courses checks the timetable for the current time and helps with what is due — a lecture running now, starting soon or just ended, a deadline, or a Häppchen in free time |
 | `openstudy --quickie` | One short, winnable Häppchen (about 5 min); counts a daily streak |
 | `openstudy --gaertner [PFAD…]` | Gärtner: a maintenance session, no studying. You tell it in chat which courses to clean up, merge or revise; the paths are its focus |
-| `openstudy --wochenvorbereitung woche\|morgen\|beginn` | Unattended: builds and updates the appointment tabs of the week from the timetable and the synced material, no chat; for timers, with `--dry-run` to inspect ([docs/modes.md § Wochenvorbereitung](docs/modes.md#wochenvorbereitung)) |
+| `openstudy --wochenvorbereitung woche\|morgen\|beginn\|abend` | Unattended: builds and updates the appointment tabs of the week from the timetable and the synced material and appends the Nachbereitung in the evening, no chat; for timers, with `--dry-run` to inspect ([docs/modes.md § Wochenvorbereitung](docs/modes.md#wochenvorbereitung)) |
 
 Mechanics of the three modes, the streak and the dossiers: [docs/modes.md](docs/modes.md).
 The Begleiter reads who you are and where your timetable lives from a tab

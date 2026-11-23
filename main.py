@@ -90,7 +90,7 @@ import shutil
 import stat
 import subprocess
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -505,7 +505,7 @@ def _headless_cleanup(argv: list) -> None:
         shutil.rmtree(path.parent, ignore_errors=True)
 
 
-def _backend_headless(prompt: str, workdir: str, bearer: str, message: str, *,
+def _backend_headless(prompt: str, workdir: str, bearer: "str | None", message: str, *,
                       model: "str | None" = None, budget: float = 2.0,
                       add_dirs: "list[str] | None" = None,
                       persist: bool = True) -> "tuple[list[str], dict]":
@@ -517,10 +517,17 @@ def _backend_headless(prompt: str, workdir: str, bearer: str, message: str, *,
     never in an argv: claude reads it from a mode-600 file (`--mcp-config <path>`, the
     caller runs `_headless_cleanup(argv)` afterwards), opencode from its config in the
     env. `persist` False (dry-run) writes nothing: the file and the prompt file show
-    as placeholders.
+    as placeholders. `bearer` None is a run that writes feed cards only: it gets no
+    board server and no board tool.
     """
-    url = _board_mcp_url()
     model = model or _select_model()
+    if ENGINE == "claude" and bearer is None:
+        argv = ["claude", "-p", message, "--permission-mode", "dontAsk",
+                "--model", model, "--strict-mcp-config", "--append-system-prompt", prompt,
+                "--output-format", "json", "--max-budget-usd", str(budget)]
+        if add_dirs:
+            argv += ["--add-dir", *add_dirs]
+        return argv + ["--allowedTools", ",".join(wv.LOCAL_TOOLS)], {}
     if ENGINE == "claude":
         entry = {"mcpServers": {BOARD_MCP_NAME: _headless_board_entry(bearer)}}
         mcp = _write_private_json(entry) if persist else "<mcp-config file>"
@@ -534,9 +541,10 @@ def _backend_headless(prompt: str, workdir: str, bearer: str, message: str, *,
         return argv, {}
     config: dict = {
         "instructions": [_prompt_file(prompt) if persist else "<prompt file>"],
-        "mcp": {"servers": {BOARD_MCP_NAME: dict(_headless_board_entry(bearer), type="remote")}},
         "permission": wv.opencode_permission(),
     }
+    if bearer is not None:
+        config["mcp"] = {"servers": {BOARD_MCP_NAME: dict(_headless_board_entry(bearer), type="remote")}}
     if model != OPENCODE_STANDARD:
         provider, name = _OPENCODE_MODEL_IDS.get(model, model).split("/", 1)
         config["model"] = {"providerID": provider, "model": name}
@@ -3459,7 +3467,26 @@ def _wv_plans(cfg: "wv.Config", phase: str, now: datetime, force: "str | None",
     states = {a.id: wv.read_state(wv.state_path(cfg.state_dir, a)) for a in appts}
     materials = {e.material: wv.read_material(cfg.material_root, e.material)
                  for e in cfg.entries.values()}
-    return year, wk, appts, states, wv.plan_phase(phase, now, appts, cfg, states, materials, force), source
+    evidence = {}
+    if phase == "abend" or (phase == "morgen" and cfg.spiele):
+        for a in appts:                          # what the day's notes and sessions say was covered
+            e = cfg.entry_for_appt(a)
+            if e is None or a.end > now or a.date < now.date() - timedelta(days=1):
+                continue
+            mat = materials.get(e.material)
+            evidence[a.id] = {
+                "notes": wv.notes_of_day(cfg.material_root / e.material, a.date,
+                                         [f for f, _ in (mat.files if mat else [])]),
+                "lines": wv.session_lines(e.course, a.date)}
+    plans = wv.plan_phase(phase, now, appts, cfg, states, materials, force, evidence)
+    if phase == "morgen" and not force and not any(a.date == now.date() for a in appts):
+        yesterday = now.date() - timedelta(days=1)   # a day without appointments: was there a session yesterday?
+        free = wv.plan_free_day(now, cfg, {c: wv.session_lines(c, yesterday)
+                                           for c in sorted({e.course for e in cfg.entries.values()})})
+        if free is not None:
+            states[free.appt.id] = wv.read_state(wv.state_path(cfg.state_dir, free.appt))
+            plans.append(free)
+    return year, wk, appts, states, plans, source
 
 
 def _wv_groups(plans) -> dict:
@@ -3472,9 +3499,29 @@ def _wv_groups(plans) -> dict:
 
 def _wv_add_dirs(cfg: "wv.Config", group, source) -> list:
     dirs = [str(cfg.material_root)] + sorted({p.entry.course for p in group})
-    if source.feedkit is not None:
-        dirs.append(str(cfg.cache_dir))
+    if source.feedkit is not None or any(p.notes for p in group):
+        dirs.append(str(cfg.cache_dir))          # slide text and rendered notes
     return dirs
+
+
+def _wv_note_refs(cfg: "wv.Config", p, render: bool) -> list:
+    """The notes of a plan as lines for the task message. A Xournal++ file is rendered
+    to PNGs in the cache dir (the model reads images, not gzip); a dry run renders nothing."""
+    refs = []
+    for path in p.notes:
+        path = Path(path)
+        if path.suffix.lower() != ".xopp":
+            refs.append(str(path))
+        elif not render:
+            refs.append(f"{path} (Xournal-Datei, wird für den Lauf als Bilder gerendert)")
+        else:
+            pages = wv.render_xopp(path, cfg.cache_dir, f"{p.appt.id}-{wv.slugify(path.stem)}")
+            if pages:
+                refs.append(f"{path.name}, als Bilder: " + ", ".join(str(x) for x in pages))
+            else:
+                refs.append(f"{path.name} (Xournal-Datei, nicht lesbar)")
+                _wv_log(f"{p.appt.id}: {path.name} nicht gerendert (Pillow fehlt oder Datei defekt)")
+    return refs
 
 
 def _wv_run_engine(argv: list, env: dict, cwd: str, timeout: int) -> str:
@@ -3512,29 +3559,68 @@ def _wv_publish_week(cfg: "wv.Config", year: int, week: int, appts, states: dict
         _wv_log(f"woche: Wochenvorschau fehlgeschlagen ({type(exc).__name__}: {exc})")
 
 
-def _wv_store_item(cfg, p, item, phase, now, states, feed) -> None:
-    """Write state, todo line and cards for one valid result item."""
+def _wv_store_games(p, item, st: dict, phase: str, now: datetime, feed: "str | None") -> dict:
+    """Write the usable cards of `spiele` as one feed file and note it in the state, so
+    the appointment gets its games once. A bad card is dropped with a log line."""
+    cards, problems = wv.valid_games(item.get("spiele"))
+    for problem in problems:
+        _wv_log(f"{phase} {p.appt.id}: Spielkarte verworfen ({problem})"[:300])
+    if not cards or feed is None:
+        _wv_log(f"{phase} {p.appt.id}: keine Spiele geschrieben"
+                + ("" if feed else " (kein Feed-Ordner)"))
+        return st
+    try:
+        path = wv.write_card_file(feed, Path(p.entry.course).name, p.appt, cards, now,
+                                  "ns" if p.games == "nach" else "sp")
+    except (ValueError, OSError) as exc:
+        _wv_log(f"{phase} {p.appt.id}: Spiele nicht geschrieben ({exc})"[:300])
+        return st
+    if path is None:
+        _wv_log(f"{phase} {p.appt.id}: Spieldatei gibt es schon")
+    done = dict(st.get("spiele") or {})
+    done["nach" if p.games == "nach" else "vor"] = {"anzahl": len(cards),
+                                                    "aktualisiert": now.isoformat(timespec="seconds")}
+    return dict(st, spiele=done)
+
+
+def _wv_store_item(cfg, p, item, phase, now, states, feed) -> bool:
+    """Write state, todo line and cards for one valid result item. False when a run
+    that was asked for feed games only brought none."""
     state = states.get(p.appt.id) or wv.new_state(p.appt, p.entry)
-    if item.get("aktion") == "uebersprungen":
+    skipped = item.get("aktion") == "uebersprungen"
+    nach = p.mode == "nach"
+    if p.mode == "karten":
+        st = dict(state, ergebnis=p.result_line) if p.result_line else dict(state)
+    elif skipped:
         st = dict(state, ergebnis=f"übersprungen: {item['grund']}"[:200])
     else:
-        st = wv.apply_result(state, item, p, now)
-        wv.append_todo_line(p.entry.course, wv.todo_line(p.appt, item["thema"], item["bild"],
-                                                         item.get("thema_quelle")))
+        if nach:
+            st = wv.apply_nach(state, item, p, now)
+            line = wv.nach_todo_line(p.appt, item["thema"], item["bild"], item["tab_id"])
+        else:
+            st = wv.apply_result(state, item, p, now)
+            line = (wv.frei_todo_line(p.appt, item["thema"], item["bild"], item["tab_id"]) if p.mode == "frei"
+                    else wv.todo_line(p.appt, item["thema"], item["bild"], item.get("thema_quelle")))
+        wv.append_todo_line(p.entry.course, line)
         if item.get("karten"):
             kurs = Path(p.entry.course).name
             if feed is None:
                 _wv_log(f"{phase} {p.appt.id}: kein Feed-Ordner, Karten übersprungen")
             else:
                 try:
-                    if wv.write_card_file(feed, kurs, p.appt, item["karten"], now) is None:
+                    if wv.write_card_file(feed, kurs, p.appt, item["karten"], now, "nb" if nach else "wv") is None:
                         _wv_log(f"{phase} {p.appt.id}: Kartendatei gibt es schon, Karten nicht geschrieben")
                 except (ValueError, OSError) as exc:   # the state below is written either way
                     _wv_log(f"{phase} {p.appt.id}: Karten nicht geschrieben ({exc})"[:300])
-    if p.close_phase:
+    # A Nachbereitung skipped on the day itself (input waiting, no usable evidence) stays
+    # open: the next evening tries once more.
+    if p.games and not skipped:
+        st = _wv_store_games(p, item, st, phase, now, feed)
+    if p.close_phase and not (nach and skipped and p.appt.date == now.date()):
         st = wv.mark_phase(st, phase)
     wv.write_state(wv.state_path(cfg.state_dir, p.appt), st)
     states[p.appt.id] = st
+    return p.mode != "karten" or st.get("spiele") != state.get("spiele")
 
 
 def _wochenvorbereitung_main(args) -> int:
@@ -3550,20 +3636,26 @@ def _wochenvorbereitung_main(args) -> int:
     if not args.engine and cfg.engine:
         _set_engine(cfg.engine)
     now = _wv_now()
+    feed = _feed_dir()
+    if feed is None:
+        cfg.spiele = False                       # games are feed cards: no feed, no games
     year, week, appts, states, plans, source = _wv_plans(cfg, phase, now, args.termin, week)
     if args.termin and not plans:
         print(f"Wochenvorbereitung: Termin {args.termin} nicht in KW {week}.", file=sys.stderr)
         return 1
     groups = _wv_groups(plans)
-    feed = _feed_dir()
+    board_groups = {b for b, g in groups.items() if any(p.mode != "karten" for p in g)}
     if args.dry_run:
         print(f"Phase {phase}, KW {week}/{year}, jetzt {now:%Y-%m-%d %H:%M}, Engine {ENGINE}")
         for p in plans:
             print(f"  {p.appt.id}  {p.mode:6}  {p.reason}" + (f"  [{p.result_line}]" if p.result_line else "")
-                  + ("  [in Ort und Stelle]" if p.in_place else ""))
+                  + ("  [in Ort und Stelle]" if p.in_place else "")
+                  + (f"  [Spiele: {p.games}]" if p.games else ""))
             print(f"      Quelle: {p.appt.source}"
                   + (f", Feed {p.appt.feed}" if p.appt.feed else "")
                   + (f", Thema: {p.appt.topic}" if p.appt.topic else ""))
+            if p.notes or p.lines:
+                print(f"      Belege: {len(p.notes)} Notiz(en), {len(p.lines)} Session-Eintrag/Einträge")
             if p.appt.slides:
                 print(f"      Folien: {', '.join(p.appt.slides)}")
                 print(f"      Folientext (geplant, nicht geschrieben): {wv.text_cache_path(cfg, p.appt)}")
@@ -3576,16 +3668,22 @@ def _wochenvorbereitung_main(args) -> int:
                   + (f" -> {feed}/pngs und .parts" if feed else " (kein Feed-Ordner: nur lokal)"))
         prompt = _wv_prompt()
         for board, group in groups.items():
+            for p in group:
+                p.notes = _wv_note_refs(cfg, p, render=False)
             message = wv.build_task_message(group, now, cfg, _course_dossier, feed)
             argv, env = _backend_headless(
-                prompt, str(cfg.material_root), "<bearer>", message, model=cfg.model,
-                budget=cfg.budget_usd, persist=False, add_dirs=_wv_add_dirs(cfg, group, source))
+                prompt, str(cfg.material_root), "<bearer>" if board in board_groups else None, message,
+                model=cfg.model, budget=cfg.budget_usd, persist=False, add_dirs=_wv_add_dirs(cfg, group, source))
             print(f"\n=== Board {board}: {len(group)} Termin(e) ===")
             print("--- Prompt ---\n" + prompt)
+            print("--- Auftrag ---\n" + message)
             print("--- Befehl ---")
             for key, value in env.items():
                 print(f"{key}={value}")
             print(" ".join(a if len(a) < 200 else f"<{len(a)} chars>" for a in argv))
+            if board not in board_groups:
+                print("Nur Spiele für den Feed: kein Board, kein Bearer, keine Board-Werkzeuge")
+                continue
             print(f"Board-Wahl: das Skript ruft vor dem Lauf select_board({board}) mit dem Bearer auf")
             if ENGINE == "claude":
                 print("mcp-config (Datei, Modus 600, wird nach dem Lauf gelöscht): "
@@ -3595,7 +3693,7 @@ def _wochenvorbereitung_main(args) -> int:
             print("opencode permission: " + json.dumps(wv.opencode_permission(), ensure_ascii=False))
         return 0
     try:
-        link = wv.read_env_value(cfg.env_file, cfg.link_var) if groups else None
+        link = wv.read_env_value(cfg.env_file, cfg.link_var) if board_groups else None
     except wv.ConfigError as exc:
         print(f"Wochenvorbereitung: {exc}", file=sys.stderr)
         return 2
@@ -3606,14 +3704,18 @@ def _wochenvorbereitung_main(args) -> int:
     for board, group in groups.items():
         ids = [p.appt.id for p in group]
         try:
-            bearer = _fetch_bearer(link)
-            _select_board(bearer, board)         # the model cannot choose a board itself
+            bearer = None                        # a group that only writes feed games needs no board
+            if board in board_groups:
+                bearer = _fetch_bearer(link)
+                _select_board(bearer, board)     # the model cannot choose a board itself
         except Exception as exc:                 # never echo the link or the response
             _wv_log(f"{phase} {board}: Bearer oder Board-Wahl fehlgeschlagen ({type(exc).__name__})")
             failed += 1
             continue
-        for note in wv.extract_texts(cfg, source, [p.appt for p in group]):
+        for note in wv.extract_texts(cfg, source, [p.appt for p in group if p.mode != "frei"]):
             _wv_log(f"{phase} {board}: {note}")
+        for p in group:
+            p.notes = _wv_note_refs(cfg, p, render=True)
         message = wv.build_task_message(group, now, cfg, _course_dossier, feed)
         argv, env = _backend_headless(
             prompt, str(cfg.material_root), bearer, message, model=cfg.model, budget=cfg.budget_usd,
@@ -3623,14 +3725,17 @@ def _wochenvorbereitung_main(args) -> int:
         finally:
             _headless_cleanup(argv)
         result = wv.extract_result(ENGINE, out) if out else None
-        errors = wv.validate_result(result, ids, 0 if any(p.mode == "update" for p in group) else 1)
+        errors = wv.validate_result(result, ids, 0 if any(p.mode == "update" for p in group) else 1,
+                                    {p.appt.id for p in group if p.mode == "karten"})
         if errors:
             _wv_log(f"{phase} {board}: Lauf ungültig, nichts geschrieben: {'; '.join(errors)[:300]}")
             failed += 1
             continue
         by_id = {i["termin"]: i for i in result["termine"]}
-        for p in group:
-            _wv_store_item(cfg, p, by_id[p.appt.id], phase, now, states, feed)
+        empty = [p.appt.id for p in group if not _wv_store_item(cfg, p, by_id[p.appt.id], phase, now, states, feed)]
+        if empty:
+            _wv_log(f"{phase} {board}: keine Spiele für {', '.join(empty)}")
+            failed += 1
         _wv_log(f"{phase} {board}: {len(group)} Termin(e) geschrieben")
     for p in plans:                              # no model run: record the outcome
         if p.run or p.entry is None:
@@ -3719,8 +3824,9 @@ def _main() -> int:
                              "(docs/feed_lernkarten.md); `none` turns it off (STUDY_FEED_DIR overrides)")
     parser.add_argument("--wochenvorbereitung", choices=wv.PHASES, default=None,
                         help="unattended preparation of the appointment tabs: woche (the coming "
-                             "week), morgen (today), beginn (5-20 min after a start); use with "
-                             "--dry-run to inspect (docs/modes.md)")
+                             "week), morgen (today), beginn (5-20 min after a start), abend (the "
+                             "Nachbereitung of the day's appointments); use with --dry-run to "
+                             "inspect (docs/modes.md)")
     parser.add_argument("--woche", metavar="JJJJ-Www", default=None,
                         help="with --wochenvorbereitung: use this ISO week instead of the "
                              "default (woche: next week from Saturday, else the current one)")

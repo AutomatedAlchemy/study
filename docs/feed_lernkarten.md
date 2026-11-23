@@ -248,12 +248,17 @@ Der Abend-Job von Nachschub schreibt Vorbereitungskarten für die Vorlesungen de
 ## Wiederholungskarten der Wochenvorbereitung
 
 Der Lauf `--wochenvorbereitung` schreibt je Termin 1 bis 2 Karten nach `lernkarten/<Kurs>/<YYYYMMDD-HHMM>-wv-<slug>.json`.
+Die Nachbereitung am Abend (`abend`) schreibt je Termin eine zweite Datei `<YYYYMMDD-HHMM>-nb-<slug>.json` mit 1 bis 2
+Karten. Ihre ids zählen ab 3 weiter (`<Kurs>-<YYYYMMDD-HHMM>-3`), und `expires_at` liegt 7 Tage nach dem Ende des Termins.
+Mit dem Schalter `spiele` schreibt der Frühlauf (`morgen`) dazu Spielkarten, 3 bis 5 je Termin: `<YYYYMMDD-HHMM>-sp-<slug>.json`
+zur Vorbereitung (ids ab 5, läuft mit dem Termin ab) und am Morgen nach einer Nachbereitung `<YYYYMMDD-HHMM>-ns-<slug>.json`
+(ids ab 10, 7 Tage). Sie haben `zweck: "spiel"` und dürfen zusätzlich `word` und `game` sein (Abschnitte „Worträtsel“ und „Spiele“).
 Datum und Uhrzeit in Dateiname und Karten-ids sind der Beginn des Termins, nicht die Zeit des Laufs: ein Termin hat eine Kartendatei.
 `<Kurs>` ist der Name des Kursordners (nie `VL-*`) und muss dem Ordnernamen-Muster des Imports entsprechen
 (`[A-Za-z0-9_][A-Za-z0-9_.-]{0,39}`, also ohne Leerzeichen), sonst entfallen die Karten mit einer Logzeile.
 Die Karten haben `muster: null`, `hinweis: false` und `zweck: "wiederholung"` (der Import prüft nur bekannte Felder und übernimmt die Karte
 unverändert). Das Feld `expires_at` steht auf Dateiebene (Ende des Termins, Uhrzeit mit Offset). Widgets: `radio`, `select`,
-`number`. Das Skript prüft dieselben Regeln wie der Import und die Sicherheitsprüfung des Abend-Jobs (kein Markup, keine
+`number`, bei den Spielkarten auch `word` und `game`. Das Skript prüft dieselben Regeln wie der Import und die Sicherheitsprüfung des Abend-Jobs (kein Markup, keine
 Links). Mit `muster: null` wird nichts gebucht.
 
 ## Terminliste der Woche
