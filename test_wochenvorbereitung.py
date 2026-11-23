@@ -403,6 +403,7 @@ def snapshot(root):
 def test_dry_run_writes_nothing_and_shows_no_secret(env, engine, capsys, monkeypatch):
     monkeypatch.setattr(sys, "argv", ["study", "--engine", engine, "--wochenvorbereitung", "woche", "--dry-run"])
     monkeypatch.setattr(m, "_fetch_bearer", lambda link: pytest.fail("dry run must not fetch a bearer"))
+    monkeypatch.setattr(m, "_select_board", lambda *a: pytest.fail("dry run must not select a board"))
     monkeypatch.setattr(m.subprocess, "run", lambda *a, **k: pytest.fail("dry run must not run anything"))
     before = snapshot(env)
     assert m._main() == 0
@@ -458,14 +459,19 @@ def test_real_run_with_mocked_engine_writes_state_card_and_todo(env, monkeypatch
     monkeypatch.setenv("STUDY_FEED_DIR", str(feed))
     monkeypatch.setattr(sys, "argv", ["study", "--engine", "claude", "--wochenvorbereitung", "woche"])
     monkeypatch.setattr(m, "_fetch_bearer", lambda link: "TOK")
+    boards = []
+    monkeypatch.setattr(m, "_select_board", lambda bearer, board: boards.append((bearer, board)))
     seen = {}
 
     def fake(argv, env_, cwd, timeout):
         seen["argv"] = argv
+        seen["boards_before_engine"] = list(boards)
         ids = re.findall(r"## Termin (\S+)", argv[2])
         return json.dumps({"type": "result", "result": json.dumps({"termine": [good_item(i) for i in ids]})})
     monkeypatch.setattr(m, "_wv_run_engine", fake)
     assert m._main() == 0
+    # the script selects each group's board with that group's bearer before the model starts
+    assert boards and all(b[0] == "TOK" for b in boards) and seen["boards_before_engine"] == boards
     assert len(list((env / "state" / "termine").glob("*.json"))) == 2
     assert (env / "state" / "woche-48.json").is_file()
     assert "Wochenvorbereitung Korrosion" in (env / "kurs-k" / "todo.md").read_text()
@@ -482,6 +488,7 @@ def test_real_run_with_mocked_engine_writes_state_card_and_todo(env, monkeypatch
 def test_invalid_result_writes_nothing(env, monkeypatch):
     monkeypatch.setattr(sys, "argv", ["study", "--engine", "claude", "--wochenvorbereitung", "woche"])
     monkeypatch.setattr(m, "_fetch_bearer", lambda link: "TOK")
+    monkeypatch.setattr(m, "_select_board", lambda *a: None)
     monkeypatch.setattr(m, "_wv_run_engine", lambda *a: json.dumps({"type": "result", "result": "{\"termine\": []}"}))
     assert m._main() == 1
     assert not (env / "state").exists()
@@ -542,8 +549,9 @@ import material as mat
 import schedule as sch
 def load_config(path=None):
     return json.load(open(path))
-def read_text(pick, cfg, run):
-    return "TEXT " + pick.sources[0].rel
+def read_text(pick, cfg, run):                  # the real one returns (text, characters, counts)
+    text = "TEXT " + pick.sources[0].rel
+    return text, len(text), [len(text)]
 """
 
 
@@ -630,6 +638,37 @@ def test_text_extraction_goes_to_the_cache_only(env, fake_kit):
     assert path.is_relative_to(env / "cache")
 
 
+def test_empty_slide_text_leaves_no_file_and_says_so(env, fake_kit):
+    cfg = wv.load_config(json.loads((env / "registry.json").read_text()))
+    src = wv.week_appointments(cfg, 2026, 48)
+    kor = [a for a in src.appts if a.source == "feedkit"]
+    src.feedkit.job.read_text = lambda pick, c, run: ("  \n", 3, [3])
+    notes = wv.extract_texts(cfg, src, src.appts)
+    assert len(notes) == 1 and kor[0].id in notes[0] and "kein Text" in notes[0]
+    assert not wv.text_cache_path(cfg, kor[0]).exists()
+
+
+def test_select_board_sends_the_board_and_needs_it_confirmed(monkeypatch):
+    import io
+    import urllib.request
+    sent = {}
+
+    def fake_urlopen(req, timeout=0):
+        sent["url"], sent["auth"] = req.full_url, req.get_header("Authorization")
+        sent["body"] = json.loads(req.data)
+        text = f"Now working on board {sent['answer']} (\"x\"), page https://b/b/{sent['answer']}."
+        return io.BytesIO(json.dumps({"result": {"content": [{"type": "text", "text": text}]}}).encode())
+    monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
+    sent["answer"] = "boardaaa"
+    m._select_board("TOK", "boardaaa")
+    assert sent["auth"] == "Bearer TOK" and sent["url"] == m._board_mcp_url()
+    assert sent["body"]["params"] == {"name": "select_board", "arguments": {"id": "boardaaa"}}
+    sent["answer"] = "boardbbb"                 # the server kept another board
+    with pytest.raises(RuntimeError) as exc:
+        m._select_board("TOK", "boardaaa")
+    assert "TOK" not in str(exc.value)
+
+
 def test_dry_run_with_feedkit_shows_source_slides_and_writes_nothing(env, fake_kit, capsys, monkeypatch):
     monkeypatch.setattr(sys, "argv", ["study", "--engine", "claude", "--wochenvorbereitung", "woche", "--dry-run"])
     before, state_before = snapshot(env), (env / "kitbase" / "state.json").read_text()
@@ -687,6 +726,7 @@ def test_skipped_item_validates_and_is_stored_without_todo_or_cards(env, monkeyp
     assert wv.validate_result({"termine": [{"termin": "x", "aktion": "uebersprungen"}]}, ["x"])
     monkeypatch.setattr(sys, "argv", ["study", "--engine", "claude", "--wochenvorbereitung", "woche"])
     monkeypatch.setattr(m, "_fetch_bearer", lambda link: "TOK")
+    monkeypatch.setattr(m, "_select_board", lambda *a: None)
 
     def fake(argv, env_, cwd, timeout):
         ids = re.findall(r"## Termin (\S+)", argv[2])
@@ -790,6 +830,7 @@ def test_failed_run_sends_exactly_one_message(env, monkeypatch):
     monkeypatch.setattr(wv, "notify_failure", lambda cfg, text, notify=None: sent.append(text) or "")
     monkeypatch.setattr(sys, "argv", ["study", "--engine", "claude", "--wochenvorbereitung", "woche"])
     monkeypatch.setattr(m, "_fetch_bearer", lambda link: "TOK")
+    monkeypatch.setattr(m, "_select_board", lambda *a: None)
     monkeypatch.setattr(m, "_wv_run_engine", lambda *a: "")
     assert m._main() == 1 and len(sent) == 1 and "TOK" not in sent[0] and "SECRETLINK" not in sent[0]
 

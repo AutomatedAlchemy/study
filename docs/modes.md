@@ -178,6 +178,10 @@ material was not synchronised today, the run records that instead of a result.
   current week and only appointments that have not begun. `--woche YYYY-Www` forces a week.
 - **Board link:** in an env file (mode 600, path `env_file`, variable `BOARD_LINK`). When
   the file is missing or readable by others, the run stops with exit code 2.
+- **Board:** the script selects the appointment's board with the run's own link before
+  the model starts, and the run fails if the board does not confirm it. The model has no
+  tool to change the board. Give the run a link of its own: a link shared with another
+  agent shares the selected board with it.
 - **Tools:** the session may read files (Read, Glob, Grep) and call `list_boards`,
   `list_tabs`, `create_tab`, `update_tab`, `append_blocks` and `update_block`. It never
   switches the tab or board you are looking at and never clears a board.

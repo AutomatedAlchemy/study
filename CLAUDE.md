@@ -594,6 +594,11 @@ without a person. Invariants:
 - **The model never writes files.** It gets Read, Glob, Grep and named board tools and returns one
   JSON. The script validates it (`validate_result`) and writes state, cards and the `todo.md` line.
   An invalid result writes nothing.
+- **The script selects the board, not the model.** `create_tab` takes no board and `select_board`
+  is denied, so `_select_board` (main.py) calls `select_board` over HTTP with the run's bearer
+  before the engine starts and fails the group unless the answer names the board. The board is
+  stored on the run's link, so the run needs a link of its own. Found on the first real run
+  (2026-11-23): without this the tab for "Spielplatz" landed on the board the user had open.
 - **One source for the tool lists.** `BOARD_ALLOWED` / `BOARD_DENIED` in `wochenvorbereitung.py` feed
   claude's allow-list and opencode's deny-list; a test compares them. A new board tool belongs in
   one of the two tuples. Untested: whether opencode's `permission` block also covers MCP tools

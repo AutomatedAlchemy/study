@@ -556,6 +556,26 @@ def _fetch_bearer(link: str) -> str:
         return json.load(resp)["access_token"]
 
 
+def _select_board(bearer: str, board: str) -> None:
+    """Put the run's link on `board` (one MCP tools/call, select_board). The model has no
+    select_board and create_tab takes no board, so without this the tabs land on the
+    board the link happens to start on (first real run, 2026-11-23: a tab for
+    "Spielplatz" landed on the board the user had open). Raises unless the answer
+    names the board. Tests mock this."""
+    import urllib.request
+    body = {"jsonrpc": "2.0", "id": 1, "method": "tools/call",
+            "params": {"name": "select_board", "arguments": {"id": board}}}
+    req = urllib.request.Request(
+        _board_mcp_url(), data=json.dumps(body).encode(),
+        headers={"content-type": "application/json", "accept": "application/json",
+                 "authorization": f"Bearer {bearer}", "user-agent": "study-wochenvorbereitung/1"})
+    with urllib.request.urlopen(req, timeout=60) as resp:
+        out = json.load(resp)
+    text = "\n".join(c.get("text", "") for c in (out.get("result") or {}).get("content") or [])
+    if f"Now working on board {board}" not in text:
+        raise RuntimeError("select_board did not confirm the board")
+
+
 def _opening_args(message: str) -> list[str]:
     """The first user message: positional for claude, `--prompt` for opencode."""
     return [message] if ENGINE == "claude" else ["--prompt", message]
@@ -3566,6 +3586,7 @@ def _wochenvorbereitung_main(args) -> int:
             for key, value in env.items():
                 print(f"{key}={value}")
             print(" ".join(a if len(a) < 200 else f"<{len(a)} chars>" for a in argv))
+            print(f"Board-Wahl: das Skript ruft vor dem Lauf select_board({board}) mit dem Bearer auf")
             if ENGINE == "claude":
                 print("mcp-config (Datei, Modus 600, wird nach dem Lauf gelöscht): "
                       + json.dumps({"mcpServers": {BOARD_MCP_NAME: _headless_board_entry("<bearer>")}}))
@@ -3586,8 +3607,9 @@ def _wochenvorbereitung_main(args) -> int:
         ids = [p.appt.id for p in group]
         try:
             bearer = _fetch_bearer(link)
+            _select_board(bearer, board)         # the model cannot choose a board itself
         except Exception as exc:                 # never echo the link or the response
-            _wv_log(f"{phase} {board}: Bearer fehlgeschlagen ({type(exc).__name__})")
+            _wv_log(f"{phase} {board}: Bearer oder Board-Wahl fehlgeschlagen ({type(exc).__name__})")
             failed += 1
             continue
         for note in wv.extract_texts(cfg, source, [p.appt for p in group]):
