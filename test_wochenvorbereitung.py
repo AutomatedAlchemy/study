@@ -1225,6 +1225,8 @@ def test_morgen_asks_for_games_only_with_the_switch(env):
     both = plan(morning, dict(seen, file_history_seen="2026-10-30T00:00:00"))[0]
     assert both.mode == "update" and both.games == "vor"                               # one run for tab and games
     assert plan(morning, dict(seen, spiele={"vor": {"anzahl": 3}}))[0].mode == "none"
+    retry = plan(morning, dict(seen, phasen=["morgen"]))[0]                           # tab skipped earlier today:
+    assert retry.mode == "karten" and retry.games == "vor"                             # the games are asked again
     assert plan(morning, dict(seen, tab_id=None, thema=None, file_history_seen="2026-11-04T07:25:20.216793"))[0].mode == "none"
     msg = wv.build_task_message([cards], morning, on)
     assert "nur Spiele für den Feed" in msg and "kein Board-Werkzeug" in msg and "zur Vorbereitung auf diesen Termin" in msg

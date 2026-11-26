@@ -1012,8 +1012,9 @@ def plan_phase(phase: str, now: datetime, appts, cfg: Config, states: dict, mate
     if phase == "morgen" and cfg.spiele:
         for i, p in enumerate(plans):
             st = states.get(p.appt.id) or {}
-            if (p.entry is None or p.games or p.appt.date != now.date() or (st.get("spiele") or {}).get("vor")
-                    or (force_id is None and phase in (st.get("phasen") or []))):
+            # `spiele.vor` is the once-marker. A done phase does not stop the games: a run that skipped the tab
+            # (input waiting, wrong board) stored none, and the appointment is only "today" once.
+            if p.entry is None or p.games or p.appt.date != now.date() or (st.get("spiele") or {}).get("vor"):
                 continue
             if p.run:
                 p.games = "vor"
