@@ -3623,6 +3623,70 @@ def _wv_store_item(cfg, p, item, phase, now, states, feed) -> bool:
     return not no_games
 
 
+def _wv_muster_courses() -> list:
+    """Registered courses with a fehlermuster.md, as absolute paths."""
+    return [c for c in _load_registry().get("workspaces", []) if (Path(c) / "fehlermuster.md").is_file()]
+
+
+def _wv_muster_cards(cfg: "wv.Config", now: datetime, feed: str, dry_run: bool) -> int:
+    """The morning run's Fehlermuster cards: for every course whose fehlermuster.md changed since the
+    last run, one read-only model run writes up to MUSTER_CARDS_MAX cards on the new Belege. The state
+    per course (`<state_dir>/muster/<Kurs>.json`) keeps the run time and the Belege covered. Returns the
+    number of failed runs; a run that finds no new Beleg is no failure."""
+    failed = 0
+    for course in _wv_muster_courses():
+        kurs = Path(course).name
+        if not wv.valid_kurs(kurs):
+            _wv_log(f"muster {kurs}: Kursname taugt nicht als Feed-Ordner, übersprungen")
+            continue
+        path = wv.muster_state_path(cfg.state_dir, kurs)
+        try:
+            state = wv.read_state(path) or {}
+        except ValueError:
+            _wv_log(f"muster {kurs}: Zustandsdatei kaputt ({path}), übersprungen")
+            failed += 1
+            continue
+        since = wv.muster_since(course, state, now)
+        if since is None:
+            continue
+        patterns = wv.active_patterns(course)
+        message = wv.muster_message(course, since, list(state.get("abgedeckt") or []))
+        argv, env = _backend_headless(wv.MUSTER_PROMPT, course, None, message, model=cfg.model,
+                                      budget=cfg.budget_usd, persist=not dry_run, add_dirs=[course])
+        if dry_run:
+            print(f"\n=== Fehlermuster-Karten {kurs}: Belege ab {since:%Y-%m-%d %H:%M}, "
+                  f"{len(patterns)} Muster ===\n--- Auftrag ---\n{message}")
+            continue
+        out = _wv_run_engine(argv, env, course, cfg.timeout_s)
+        result = wv.extract_result(ENGINE, out) if out else None
+        if not isinstance(result, dict) or not isinstance(result.get("karten"), list):
+            _wv_log(f"muster {kurs}: Lauf ohne gültiges Ergebnis, nichts geschrieben")
+            failed += 1
+            continue
+        cards, problems = wv.valid_muster_cards(result["karten"], patterns)
+        for problem in problems:
+            _wv_log(f"muster {kurs}: verworfen: {problem}"[:300])
+        if result["karten"] and not cards:
+            _wv_log(f"muster {kurs}: keine brauchbare Karte, der nächste Lauf versucht es wieder")
+            failed += 1
+            continue
+        if cards:
+            try:
+                name, content = wv.build_muster_file(kurs, cards, now)
+                if not wv.write_new_json(Path(feed) / "lernkarten" / kurs / name, content):
+                    _wv_log(f"muster {kurs}: {name} gibt es schon, nichts geschrieben")
+                    continue
+            except (ValueError, OSError) as exc:
+                _wv_log(f"muster {kurs}: Karten nicht geschrieben ({exc})"[:300])
+                failed += 1
+                continue
+        covered = list(state.get("abgedeckt") or []) + [c["beleg"].strip() for c in cards]
+        wv.write_state(path, {"seit": now.isoformat(timespec="seconds"),
+                              "abgedeckt": list(dict.fromkeys(covered))[-wv.MUSTER_COVERED_MAX:]})
+        _wv_log(f"muster {kurs}: {len(cards)} Karte(n)" + ("" if cards else f" ({str(result.get('grund') or '')[:120]})"))
+    return failed
+
+
 def _wochenvorbereitung_main(args) -> int:
     phase = args.wochenvorbereitung
     try:
@@ -3691,6 +3755,8 @@ def _wochenvorbereitung_main(args) -> int:
             print("--- Werkzeuge ---")
             print("claude erlaubt: " + ", ".join(wv.claude_allowed_tools()))
             print("opencode permission: " + json.dumps(wv.opencode_permission(), ensure_ascii=False))
+        if phase == "morgen" and cfg.muster and feed:
+            _wv_muster_cards(cfg, now, feed, dry_run=True)
         return 0
     try:
         link = wv.read_env_value(cfg.env_file, cfg.link_var) if board_groups else None
@@ -3749,6 +3815,8 @@ def _wochenvorbereitung_main(args) -> int:
             continue
         wv.write_state(wv.state_path(cfg.state_dir, p.appt), st)
         states[p.appt.id] = st
+    if phase == "morgen" and cfg.muster and feed and not args.termin:
+        failed += _wv_muster_cards(cfg, now, feed, dry_run=False)
     if phase == "woche" and not failed:
         _wv_publish_week(cfg, year, week, appts, states, now, feed)
     _wv_log(f"{phase}: {len(groups)} Lauf/Läufe, {failed} gescheitert")

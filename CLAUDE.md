@@ -673,6 +673,14 @@ without a person. Invariants:
   `NACH_CARD_DAYS`), `zweck: "spiel"`, `muster: null`, table `CARD_KINDS`. The state key `spiele` (`vor`, `nach`) makes
   each happen once. No feed folder switches the games off for the run. The script cannot check that a game's answer is
   right, only that it fits the lists.
+- **Fehlermuster cards (`morgen`, registry switch `muster`, default off; 2026-11-26, user):** live sessions write no
+  feed cards any more, so the morning run writes the `muster` cards they wrote. `_wv_muster_cards` loops over the
+  registered courses with a `fehlermuster.md` that changed since `<state_dir>/muster/<Kurs>.json` `seit` (first run:
+  `MUSTER_LOOKBACK_DAYS`), one read-only run per course (`MUSTER_PROMPT`, no bearer, Read/Glob/Grep, cwd the course).
+  `valid_muster_cards` drops a card whose `muster` is not in the „Aktive Muster“ table (`active_patterns`), without a
+  `beleg`, or with fewer than 3 options. `build_muster_file` is the only writer that keeps `muster`. The state keeps the
+  Beleg references (`abgedeckt`) so the next run does not repeat them. A run with only bad cards writes no state and
+  counts as failed, so the next run tries again.
 - Not built yet: the evening job reading `woche-<KW>.json`, timer installation, PDF text cache.
 
 ## Gotchas

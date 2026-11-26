@@ -1285,3 +1285,95 @@ def test_games_only_run_needs_no_board_and_writes_once(env, monkeypatch):
     assert m._main() == 1 and "spiele" not in wv.read_state(path)
     assert "morgen" not in wv.read_state(path).get("phasen", [])                       # phase stays open
     assert m._main() == 1 and len(empty) == 2                                          # so the next run tries again
+
+
+# --- Fehlermuster cards (`morgen`, switch `muster`) ----------------------------
+FEHLERMUSTER = """# Fehlermuster
+
+## Aktive Muster
+
+| # | Muster | Belege | Stand |
+|---|--------|--------|-------|
+| 2 | Kehrwert statt Formel (N/2 statt 2/N) | 2 | offen |
+| 1 | Entropie ÷N richtig, Folge umgekehrt | 1 | offen |
+
+## Belege
+
+### 2026-11-20 · Q01 Tagesquiz, 2/5
+
+- **Muster 2:** χ_crit = „500“ bei N = 1000. → 2/N = 0,002.
+"""
+
+
+def muster_card(**kw):
+    return good_card(**{"muster": 2, "beleg": "2026-11-20 · Q01", **kw})
+
+
+def test_active_patterns_and_since(tmp_path):
+    course = tmp_path / "kurs"
+    course.mkdir()
+    now = datetime(2026, 11, 27, 5, 0)
+    assert wv.active_patterns(str(course)) == {} and wv.muster_since(str(course), {}, now) is None   # no file
+    (course / "fehlermuster.md").write_text(FEHLERMUSTER, encoding="utf-8")
+    assert wv.active_patterns(str(course)) == {2: "Kehrwert statt Formel (N/2 statt 2/N)",
+                                               1: "Entropie ÷N richtig, Folge umgekehrt"}
+    os.utime(course / "fehlermuster.md", (now.timestamp() - 3600,) * 2)
+    assert wv.muster_since(str(course), {}, now) == now - timedelta(days=wv.MUSTER_LOOKBACK_DAYS)  # first run
+    assert wv.muster_since(str(course), {"seit": "2026-11-26T05:00:00"}, now) == datetime(2026, 11, 26, 5)
+    assert wv.muster_since(str(course), {"seit": "2026-11-27T04:30:00"}, now) is None   # unchanged since the last run
+    (course / "fehlermuster.md").write_text("# Fehlermuster\n\nnur Text\n", encoding="utf-8")
+    assert wv.muster_since(str(course), {}, now) is None                                # no pattern table
+
+
+def test_valid_muster_cards_and_file_keep_the_muster():
+    patterns = {1: "a", 2: "b"}
+    cards, problems = wv.valid_muster_cards(
+        [muster_card(), muster_card(muster=9, front="F2?"), muster_card(front="F3?", beleg=" "),
+         muster_card(front="F4?", input={"widget": "radio", "options": ["a", "b"]}),
+         muster_card(), muster_card(front="F6?", input={"widget": "number"}, answer=0.002)], patterns)
+    assert [c["front"] for c in cards] == ["Wie heißt die Schicht?", "F6?"] and len(problems) == 4
+    now = datetime(2026, 11, 27, 5, 0)
+    name, content = wv.build_muster_file("AMW_I", cards, now)
+    assert name == "20261127-0500-fm-fehlermuster.json"
+    assert [c["muster"] for c in content["cards"]] == [2, 2]                            # booked by the session
+    assert {c["zweck"] for c in content["cards"]} == {"fehlermuster"} and not any(c["hinweis"] for c in content["cards"])
+    assert [c["id"] for c in content["cards"]] == ["AMW_I-20261127-0500-fm1", "AMW_I-20261127-0500-fm2"]
+    assert "beleg" not in content["cards"][0] and content["quelle"] == "Fehlermuster: 2026-11-20 · Q01"
+    with pytest.raises(ValueError):
+        wv.build_muster_file("VL-Korrosion", cards, now)
+    many, _ = wv.valid_muster_cards([muster_card(front=f"F{i}?") for i in range(9)], patterns)
+    assert len(many) == wv.MUSTER_CARDS_MAX
+
+
+def test_morning_run_writes_fehlermuster_cards_once(env, monkeypatch):
+    feed = env / "feed"
+    feed.mkdir()
+    reg = registry(env, muster="on")
+    (env / "registry.json").write_text(json.dumps({**reg, "migrated": True}), encoding="utf-8")
+    (env / "kurs-k" / "fehlermuster.md").write_text(FEHLERMUSTER, encoding="utf-8")
+    os.utime(env / "kurs-k" / "fehlermuster.md", (datetime(2026, 11, 21, 18).timestamp(),) * 2)   # before "now"
+    monkeypatch.setenv("STUDY_FEED_DIR", str(feed))
+    monkeypatch.setenv("STUDY_WV_NOW", "2026-11-22T05:00:00")       # a Sunday: no appointment, no board
+    monkeypatch.setattr(sys, "argv", ["study", "--engine", "claude", "--wochenvorbereitung", "morgen"])
+    monkeypatch.setattr(m, "_wv_muster_courses", lambda: [str(env / "kurs-k")])
+    monkeypatch.setattr(m, "_fetch_bearer", lambda link: pytest.fail("Fehlermuster cards need no board"))
+    calls = []
+
+    def engine(argv, env_, cwd, timeout):
+        calls.append(argv)
+        return json.dumps({"type": "result", "result": json.dumps({"karten": [muster_card(), muster_card(muster=7)]})})
+
+    monkeypatch.setattr(m, "_wv_run_engine", engine)
+    assert m._main() == 0 and len(calls) == 1
+    argv = calls[0]
+    assert argv[argv.index("--allowedTools") + 1] == "Read,Glob,Grep" and "--mcp-config" not in argv
+    files = list((feed / "lernkarten" / "kurs-k").glob("*-fm-fehlermuster.json"))
+    content = json.loads(files[0].read_text())
+    assert len(files) == 1 and [c["muster"] for c in content["cards"]] == [2]          # muster 7 is dropped
+    state = wv.read_state(wv.muster_state_path(env / "state", "kurs-k"))
+    assert state == {"seit": "2026-11-22T05:00:00", "abgedeckt": ["2026-11-20 · Q01"]}
+    assert m._main() == 0 and len(calls) == 1                         # file unchanged since: no second run
+    off = registry(env)                                               # switch off: nothing at all
+    (env / "registry.json").write_text(json.dumps({**off, "migrated": True}), encoding="utf-8")
+    (env / "kurs-k" / "fehlermuster.md").write_text(FEHLERMUSTER + "\n", encoding="utf-8")
+    assert m._main() == 0 and len(calls) == 1

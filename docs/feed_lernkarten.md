@@ -246,6 +246,18 @@ Der Abend-Job von Nachschub schreibt Vorbereitungskarten für die Vorlesungen de
   anzupassen. Keine Lern-Session liest sie.
 - Die Vorbereitungskarten zählen nicht in den halben Quiz-Vote und nicht im Feed-Digest.
 
+## Fehlermuster-Karten des Frühlaufs
+
+Mit dem Schalter `muster` schreibt der Frühlauf (`morgen`) die Karten, die bis 2026-11-26 die Lern-Sessions schrieben.
+Für jeden Kurs, dessen `fehlermuster.md` sich seit dem letzten Lauf geändert hat, liest ein Modelllauf (nur Lesen, kein Board)
+die neuen Belege und schreibt höchstens 4 Karten nach `lernkarten/<Kurs>/<YYYYMMDD-HHMM>-fm-fehlermuster.json`.
+Datum und Uhrzeit sind die des Laufs. Jede Karte trägt die Nummer ihres Musters (`muster`), `hinweis: false` und
+`zweck: "fehlermuster"`. Die ids lauten `<Kurs>-<YYYYMMDD-HHMM>-fm<n>`. `created_at` ist die Zeit des Laufs, `expires_at` liegt 14 Tage später.
+Die Regeln oben gelten: ein Distraktor aus dem Beleg, `number` oder `radio`/`select` mit mindestens 3 Optionen, der
+Schlüssel nachgerechnet. Das Skript verwirft eine Karte, deren `muster` nicht in der Tabelle „Aktive Muster“ steht.
+Der Zustand je Kurs liegt in `<state_dir>/muster/<Kurs>.json`: Zeit des letzten Laufs und die abgedeckten Belege.
+Der erste Lauf eines Kurses nimmt die Belege der letzten 7 Tage. Die Session bucht die Antworten wie oben beschrieben.
+
 ## Wiederholungskarten der Wochenvorbereitung
 
 Der Lauf `--wochenvorbereitung` schreibt je Termin 1 bis 2 Karten nach `lernkarten/<Kurs>/<YYYYMMDD-HHMM>-wv-<slug>.json`.

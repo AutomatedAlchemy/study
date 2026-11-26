@@ -192,9 +192,15 @@ material was not synchronised today, the run records that instead of a result.
   the same kind of cards on what was covered; those stay 7 days. A run that only writes these
   cards gets no board access at all. Nothing is booked from them (`muster: null`). Off by
   default: `--set-wochenvorbereitung spiele on`.
+- **Fehlermuster cards (`morgen`, switch `muster`):** for every registered course whose
+  `fehlermuster.md` changed since the last run, a run that may only read files writes up to 4
+  cards on the new Belege, each with the number of its pattern (`muster`). Your next session
+  books the answers as before: a wrong answer is a Beleg, a right one can be the repair check.
+  The first run of a course takes the Belege of the last 7 days. The cards stay 14 days. Live
+  sessions write no cards since 2026-11-26. Off by default: `--set-wochenvorbereitung muster on`.
 - **Configuration:** registry key `wochenvorbereitung`, set with
   `--set-wochenvorbereitung KEY VALUE`. Keys: `material_root`, `timetable`, `state_dir`,
-  `cache_dir`, `env_file`, `engine`, `model`, `skip`, `extras`, `exceptions`, `slots`, `frei`, `spiele`, and
+  `cache_dir`, `env_file`, `engine`, `model`, `skip`, `extras`, `exceptions`, `slots`, `frei`, `spiele`, `muster`, and
   `termin:<title>` with the value `course folder;material folder;board;lecture name`.
 - **Timetable:** a Markdown table
   `| Tag | Zeit | Veranstaltung | Typ | Gebäude | Dozent | Zeitraum |`. Recurring
