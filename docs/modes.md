@@ -154,6 +154,10 @@ The Gärtner keeps no state and does not count towards the Quickie streak.
 the week on the Tutor Board without supervision. It is not a menu mode. Timers call it on
 a machine that reaches the board and the course folders. Unit templates are in
 `templates/systemd/`; copy and enable them yourself, there is no installer for them.
+When a feed job imports the cards, let it start the `woche` and `morgen` services
+(`systemctl --user start study-wochenvorbereitung-morgen.service`) before its import and
+leave those two timers off. Then the cards of the day reach the feed before the first
+appointment. The author's feed does this at 05:00.
 
 | Phase | When | What |
 |---|---|---|
