@@ -3636,7 +3636,7 @@ def _wv_muster_cards(cfg: "wv.Config", now: datetime, feed: str, dry_run: bool) 
     failed = 0
     for course in _wv_muster_courses():
         kurs = Path(course).name
-        if not wv.valid_kurs(kurs):
+        if not wv.valid_kurs(kurs) or kurs.startswith("VL-"):
             _wv_log(f"muster {kurs}: Kursname taugt nicht als Feed-Ordner, übersprungen")
             continue
         path = wv.muster_state_path(cfg.state_dir, kurs)
@@ -3755,7 +3755,7 @@ def _wochenvorbereitung_main(args) -> int:
             print("--- Werkzeuge ---")
             print("claude erlaubt: " + ", ".join(wv.claude_allowed_tools()))
             print("opencode permission: " + json.dumps(wv.opencode_permission(), ensure_ascii=False))
-        if phase == "morgen" and cfg.muster and feed:
+        if phase == "morgen" and cfg.muster and feed and not args.termin:
             _wv_muster_cards(cfg, now, feed, dry_run=True)
         return 0
     try:

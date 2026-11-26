@@ -1793,6 +1793,8 @@ def valid_muster_cards(cards, patterns: dict) -> tuple:
                 errs.append("muster ist keine Nummer aus „Aktive Muster“")
             if not isinstance(card.get("beleg"), str) or not card["beleg"].strip():
                 errs.append("beleg fehlt")
+            elif UNSAFE_RE.search(card["beleg"]) or UNSAFE_RE.search(card["thema"]):
+                errs.append("Markup oder Link in beleg oder thema")
             if card["input"]["widget"] != "number" and len(card["input"].get("options") or []) < 3:
                 errs.append("radio und select brauchen mindestens 3 Optionen")
             if card["front"] in fronts:

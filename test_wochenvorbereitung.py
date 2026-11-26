@@ -1330,8 +1330,10 @@ def test_valid_muster_cards_and_file_keep_the_muster():
     cards, problems = wv.valid_muster_cards(
         [muster_card(), muster_card(muster=9, front="F2?"), muster_card(front="F3?", beleg=" "),
          muster_card(front="F4?", input={"widget": "radio", "options": ["a", "b"]}),
-         muster_card(), muster_card(front="F6?", input={"widget": "number"}, answer=0.002)], patterns)
-    assert [c["front"] for c in cards] == ["Wie heißt die Schicht?", "F6?"] and len(problems) == 4
+         muster_card(), muster_card(front="F6?", input={"widget": "number"}, answer=0.002),
+         muster_card(front="F7?", beleg="siehe https://example.invalid"), muster_card(front="F8?", thema="<b>x</b>")],
+        patterns)
+    assert [c["front"] for c in cards] == ["Wie heißt die Schicht?", "F6?"] and len(problems) == 6
     now = datetime(2026, 11, 27, 5, 0)
     name, content = wv.build_muster_file("AMW_I", cards, now)
     assert name == "20261127-0500-fm-fehlermuster.json"
