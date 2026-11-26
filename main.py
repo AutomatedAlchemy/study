@@ -3681,8 +3681,13 @@ def _wv_muster_cards(cfg: "wv.Config", now: datetime, feed: str, dry_run: bool) 
                 failed += 1
                 continue
         covered = list(state.get("abgedeckt") or []) + [c["beleg"].strip() for c in cards]
-        wv.write_state(path, {"seit": now.isoformat(timespec="seconds"),
-                              "abgedeckt": list(dict.fromkeys(covered))[-wv.MUSTER_COVERED_MAX:]})
+        try:
+            wv.write_state(path, {"seit": now.isoformat(timespec="seconds"),
+                                  "abgedeckt": list(dict.fromkeys(covered))[-wv.MUSTER_COVERED_MAX:]})
+        except OSError as exc:
+            _wv_log(f"muster {kurs}: {len(cards)} Karte(n) geschrieben, Zustand nicht ({type(exc).__name__})")
+            failed += 1
+            continue
         _wv_log(f"muster {kurs}: {len(cards)} Karte(n)" + ("" if cards else f" ({str(result.get('grund') or '')[:120]})"))
     return failed
 

@@ -1375,10 +1375,16 @@ def test_morning_run_writes_fehlermuster_cards_once(env, monkeypatch):
     state = wv.read_state(wv.muster_state_path(env / "state", "kurs-k"))
     assert state == {"seit": "2026-11-22T05:00:00", "abgedeckt": ["2026-11-20 · Q01"]}
     assert m._main() == 0 and len(calls) == 1                         # file unchanged since: no second run
+    os.utime(env / "kurs-k" / "fehlermuster.md", (datetime(2026, 11, 22, 5, 30).timestamp(),) * 2)
+    monkeypatch.setenv("STUDY_WV_NOW", "2026-11-22T06:00:00")
+    write_state = wv.write_state
+    monkeypatch.setattr(wv, "write_state", lambda *a: (_ for _ in ()).throw(OSError("voll")))
+    assert m._main() == 1 and len(calls) == 2                         # a failed state write is a failed run, no crash
+    monkeypatch.setattr(wv, "write_state", write_state)
     off = registry(env)                                               # switch off: nothing at all
     (env / "registry.json").write_text(json.dumps({**off, "migrated": True}), encoding="utf-8")
     (env / "kurs-k" / "fehlermuster.md").write_text(FEHLERMUSTER + "\n", encoding="utf-8")
-    assert m._main() == 0 and len(calls) == 1
+    assert m._main() == 0 and len(calls) == 2
 
 
 def test_dry_run_shows_fehlermuster_cards_writes_nothing_and_skips_them_with_termin(env, capsys, monkeypatch):
