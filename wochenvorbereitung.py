@@ -1580,7 +1580,10 @@ def validate_result(data, expected_ids, min_cards: int = 1, cards_only=()) -> li
         if item.get("aktion") not in (None, "gebaut", "angehaengt", "geaendert", "uebersprungen", "karten"):
             errs.append(f"{where}: aktion ungültig")
             continue
-        if (item.get("aktion") == "karten") != (tid in cards_only if isinstance(tid, str) else False):
+        only = tid in cards_only if isinstance(tid, str) else False
+        # A games-only appointment answers "karten", or "uebersprungen" (the wrong-board rule skips every
+        # appointment); a skip then fails that appointment alone, not the whole group.
+        if (item.get("aktion") == "karten" and not only) or (only and item.get("aktion") not in ("karten", "uebersprungen")):
             errs.append(f"{where}: aktion „karten“ gilt genau für einen Auftrag, der nur Spiele verlangt")
             continue
         if item.get("aktion") == "karten":

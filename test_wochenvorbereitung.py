@@ -258,6 +258,10 @@ def test_validate_result():
     bad = good_item(); bad["karten"] = [good_card()] * 3
     assert wv.validate_result({"termine": [bad]}, ["x"])
     assert wv.validate_result({"termine": [good_item("y")]}, ["x"])            # unknown + missing
+    skip = {"termin": "x", "aktion": "uebersprungen", "grund": "falsches Board"}
+    assert wv.validate_result({"termine": [skip]}, ["x"], cards_only={"x"}) == []   # games-only may be skipped
+    assert wv.validate_result({"termine": [good_item()]}, ["x"], cards_only={"x"})  # but not built
+    assert wv.validate_result({"termine": [{"termin": "x", "aktion": "karten", "spiele": []}]}, ["x"])  # karten needs games-only
 
 
 def test_extract_result_both_engines():
