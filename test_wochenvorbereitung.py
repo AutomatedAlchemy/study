@@ -1277,6 +1277,9 @@ def test_games_only_run_needs_no_board_and_writes_once(env, monkeypatch):
     assert m._main() == 0 and len(calls) == 1                                          # once per appointment
     # a run that brings no usable game counts as failed and leaves the phase open for nothing: state unchanged
     wv.write_state(path, seen_state(cfg, kor, "2026-11-04T07:25:20.216793", thema="Passivfilme"))
-    monkeypatch.setattr(m, "_wv_run_engine", lambda *a: json.dumps(
+    empty = []
+    monkeypatch.setattr(m, "_wv_run_engine", lambda *a: empty.append(1) or json.dumps(
         {"type": "result", "result": json.dumps({"termine": [{"termin": kor.id, "aktion": "karten", "spiele": []}]})}))
     assert m._main() == 1 and "spiele" not in wv.read_state(path)
+    assert "morgen" not in wv.read_state(path).get("phasen", [])                       # phase stays open
+    assert m._main() == 1 and len(empty) == 2                                          # so the next run tries again

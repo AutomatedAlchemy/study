@@ -3614,11 +3614,13 @@ def _wv_store_item(cfg, p, item, phase, now, states, feed) -> bool:
     # open: the next evening tries once more.
     if p.games and not skipped:
         st = _wv_store_games(p, item, st, phase, now, feed)
-    if p.close_phase and not (nach and skipped and p.appt.date == now.date()):
+    # A games-only run that brought no usable game leaves the phase open, so the next run tries again.
+    no_games = p.mode == "karten" and st.get("spiele") == state.get("spiele")
+    if p.close_phase and not no_games and not (nach and skipped and p.appt.date == now.date()):
         st = wv.mark_phase(st, phase)
     wv.write_state(wv.state_path(cfg.state_dir, p.appt), st)
     states[p.appt.id] = st
-    return p.mode != "karten" or st.get("spiele") != state.get("spiele")
+    return not no_games
 
 
 def _wochenvorbereitung_main(args) -> int:
