@@ -404,9 +404,9 @@ rule lives in one place instead of a copied paragraph in every course.
 The scroller app Nachschub takes
 quiz cards from every course. The feed folder comes from `STUDY_FEED_DIR` or the
 registry key `feed_dir` (`--set-feed DIR`, `none` turns it off). When it is set and
-exists on the host, `_prompt_common` adds a `<feed_lernkarten>` block: after a review
-that books a Beleg, write 1–2 cards as a new file under `<feed>/lernkarten/<Kurs>/`;
-on arrival, book the answers from `<feed>/lernkarten_antworten/<Kurs>.jsonl`. The
+exists on the host, `_prompt_common` adds a `<feed_lernkarten>` block: on arrival,
+book the answers from `<feed>/lernkarten_antworten/<Kurs>.jsonl`. Live sessions write no
+cards since 2026-11-26 (user): the unattended Wochenvorbereitung runs write them. The
 card format is one card of the Tutor Board `cards` block plus `id`, `muster`,
 `thema`, `hinweis`. Format, answer file, counting rule and the Nachschub side are in
 `docs/feed_lernkarten.md`, which both sides follow. Counting rule chosen by the user:

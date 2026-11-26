@@ -461,6 +461,7 @@ def test_feed_cards_rule_only_with_a_feed_folder_present(tmp_path, monkeypatch):
     for text in (m._assemble_prompt(a), m._assemble_begleiter_prompt(), m._assemble_gaertner_prompt()):
         assert "<feed_lernkarten>" in text
         assert str(feed / m.FEED_CARDS_DIR) in text and str(m.FEED_CONTRACT) in text
+        assert "Du schreibst keine Karten" in text and "1–2 Karten" not in text  # live sessions write none
     assert m.FEED_CONTRACT.is_file()
     assert m._set_feed("none") is None
     assert "<feed_lernkarten>" not in m._prompt_common()        # turned off
