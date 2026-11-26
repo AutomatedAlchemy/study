@@ -1696,19 +1696,7 @@ def write_card_file(feed_dir: str, kurs: str, appt: Appointment, cards, now: dat
     None if it exists already: an appointment gets one card file per kind."""
     name, content = build_card_file(kurs, appt, cards, now, kind)
     path = Path(feed_dir) / "lernkarten" / kurs / name
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_name(f".{path.name}.{os.getpid()}.tmp")
-    fd = os.open(tmp, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as fh:
-            fh.write(json.dumps(content, indent=1, ensure_ascii=False) + "\n")
-        try:
-            os.link(tmp, path)
-        except FileExistsError:
-            return None
-    finally:
-        os.unlink(tmp)
-    return path
+    return path if write_new_json(path, content) else None
 
 
 # ----------------------------------------------------------------------------

@@ -1379,3 +1379,24 @@ def test_morning_run_writes_fehlermuster_cards_once(env, monkeypatch):
     (env / "registry.json").write_text(json.dumps({**off, "migrated": True}), encoding="utf-8")
     (env / "kurs-k" / "fehlermuster.md").write_text(FEHLERMUSTER + "\n", encoding="utf-8")
     assert m._main() == 0 and len(calls) == 1
+
+
+def test_dry_run_shows_fehlermuster_cards_writes_nothing_and_skips_them_with_termin(env, capsys, monkeypatch):
+    (env / "feed").mkdir()
+    reg = registry(env, muster="on")
+    (env / "registry.json").write_text(json.dumps({**reg, "migrated": True}), encoding="utf-8")
+    (env / "kurs-k" / "fehlermuster.md").write_text(FEHLERMUSTER, encoding="utf-8")
+    os.utime(env / "kurs-k" / "fehlermuster.md", (datetime(2026, 11, 22, 18).timestamp(),) * 2)
+    monkeypatch.setenv("STUDY_FEED_DIR", str(env / "feed"))
+    monkeypatch.setenv("STUDY_WV_NOW", "2026-11-23T05:00:00")       # Monday: Korrosion at 12:15
+    monkeypatch.setattr(m, "_wv_muster_courses", lambda: [str(env / "kurs-k")])
+    monkeypatch.setattr(m, "_wv_run_engine", lambda *a: pytest.fail("dry run must not run the engine"))
+    monkeypatch.setattr(m.subprocess, "run", lambda *a, **k: pytest.fail("dry run must not run anything"))
+    before = snapshot(env)
+    monkeypatch.setattr(sys, "argv", ["study", "--engine", "claude", "--wochenvorbereitung", "morgen", "--dry-run"])
+    assert m._main() == 0
+    assert "=== Fehlermuster-Karten kurs-k" in capsys.readouterr().out and snapshot(env) == before
+    monkeypatch.setattr(sys, "argv", ["study", "--engine", "claude", "--wochenvorbereitung", "morgen", "--dry-run",
+                                      "--termin", "2026-11-23_1215_korrosion-und-oberflaechentechnik"])
+    assert m._main() == 0
+    assert "Fehlermuster-Karten" not in capsys.readouterr().out and snapshot(env) == before
