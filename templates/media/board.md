@@ -205,11 +205,11 @@ ohne `select_tab`. Eine Korrektur darf auf den Tab verweisen („steht in
 
 ## Auf den User warten
 
-Gilt für jeden Wait: Übersichts-Bestätigung, Häppchen-Abgabe, „Noch eins?".
+Gilt für jeden Wait: Übersichts-Bestätigung, Häppchen-Abgabe, „Weiter → QKnn“ im Quickie.
 
 - **Feste Regel für beide Engines** (Nutzervorgabe 2026-11-01): nach jeder
   Übergabe endet kein Turn ohne laufenden Wait. Das gilt für ein Häppchen, die
-  Übersicht, „Noch eins?“, das Wiedervorlegen eines liegengebliebenen Tabs und die
+  Übersicht, der „Weiter → QKnn“-Knopf im Quickie, das Wiedervorlegen eines liegengebliebenen Tabs und die
   Drei-Zeilen-Ansage des Begleiters. Ein Tab ohne Wait ist nicht übergeben.
 - Warten, wie der MCP es beschreibt (bevorzugt der Weg, der keine Modellaufrufe
   kostet). Welche Mechanik die Engine dafür hat, steht in der Orientierung oben. Nach dem Aufwachen sagt das Ereignis, ob der User geklickt oder
@@ -290,21 +290,18 @@ die entsteht.
 - **Nie in die Übersicht und nie in angepinnte Tabs.** Ein Clip an einer Korrektur (wiederkehrendes, geometrisches
   Fehlermuster) bleibt zusätzlich erlaubt, gleiche Mechanik.
 
-## „Noch eins?“ (Quickie)
+## Nächstes Quickie („Weiter“, kein Nachfragen)
 
-Gilt nur im Quickie-Modus. Im Lern-Loop ist das nächste Häppchen beim Klick schon
-gebaut, der Knopf heißt dort „Weiter → Hxx" (§„Häppchen übergeben").
+Gilt nur im Quickie-Modus. Nach der Korrektur wird nicht gefragt: die Session baut
+sofort das nächste Quickie (nächstes Thema oder eine Stufe schwerer), wie im Lern-Loop
+(§„Häppchen übergeben"), und der Knopf heißt „Weiter → QKnn".
 
-Die Frage nach dem nächsten Quickie gehört **aufs Board, nicht ins Terminal** —
-der User schaut ohnehin dorthin, und ein Klick ist billiger als eine getippte
-Antwort.
-
-- Ans Ende des Häppchen-Tabs, unter die letzte Aufgabe und ihre Korrektur, genau EINEN
-  `submit`-Knopf („Noch eins?“). Kein Gegenstück zum Ablehnen — wer aufhören
-  will, klickt einfach nicht oder sagt es im Chat; ein „für heute reicht's“-Knopf
-  macht das Aufhören zur angebotenen Option und arbeitet gegen die Gewohnheit.
-- Danach auf den Klick warten (§„Auf den User warten"). Kommt der Klick, folgt
-  das nächste Häppchen als neuer Tab; bleibt er aus oder sagt der User ab, ein
-  Satz Abschied.
+- Das nächste Häppchen wird im Hintergrund gebaut (`create_tab(select: false)`, mit Bild-Zeile
+  und Eintrag in `todo.md`). Am Ende des korrigierten Tabs steht genau EIN `submit`-Knopf
+  „Weiter → QKnn“, unter der letzten Aufgabe und ihrer Korrektur.
+- Danach auf den Klick warten (§„Auf den User warten"). Kommt der Klick, `select_tab` auf den
+  neuen Tab; die Schleife beginnt von vorn.
+- Sagt der User im Chat, dass er aufhört, verabschiedet sich die Session in einem Satz. Kein
+  „für heute reicht's“-Knopf: aufhören heißt, nicht zu klicken oder es zu sagen.
 - Antwortet er stattdessen im Chat, gilt das genauso — den Knopf dann nicht
   wiederholen.

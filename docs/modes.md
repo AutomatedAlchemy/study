@@ -51,9 +51,9 @@ in half a sentence when there are several (no file reading first — the dossier
 suffice), and opens one small, self-contained, deliberately *winnable* task in
 the active medium, following that course's `CLAUDE.md` mechanics scaled down to
 a single Häppchen. After your answer it corrects briefly, names what you got
-right, and asks „Noch eins?“ the way the active medium does it (a button on the
-board, a line in the chat) — with the next Quickie already in mind. If you
-stop, it says goodbye in a sentence; no lecture. A Quickie still counts in the
+right, and builds the next Quickie at once without asking: on the board it sits
+behind a „Weiter → QKnn“ button, in the chat it starts in the chat. If you
+stop (you say so in the chat), it says goodbye in a sentence; no lecture. A Quickie still counts in the
 `Fortschritt:` line and is noted with date and topic in `todo.md`.
 
 The launcher keeps a streak in the registry (`quickies`: last date, days in a

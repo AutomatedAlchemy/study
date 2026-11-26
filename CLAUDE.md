@@ -247,7 +247,8 @@ route to `_launch_quickie`: one interactive session like a course launch
 (tier model, `_exec_or_konsole`, dossiers when there are several courses, the
 course's own CLAUDE.md read for the mechanics), but the brief
 (`opening_message_quickie`) is scaled down to ONE five-minute Häppchen and
-tuned for a quick win and a one-line „Noch eins?“. It carries
+tuned for a quick win; after the correction the next Quickie is built ahead and
+reached by a „Weiter → QKnn“ button, with no question. It carries
 `upcoming_exams()` (shared `_exam_prompt_lines`) — with
 several courses the deadlines steer the pick, with one they steer the topic. The point is the habit —
 lowering the threshold to start and making a second round the easy next step —
