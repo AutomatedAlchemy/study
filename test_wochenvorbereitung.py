@@ -1380,6 +1380,7 @@ def test_morning_run_writes_fehlermuster_cards_once(env, monkeypatch):
     write_state = wv.write_state
     monkeypatch.setattr(wv, "write_state", lambda *a: (_ for _ in ()).throw(OSError("voll")))
     assert m._main() == 1 and len(calls) == 2                         # a failed state write is a failed run, no crash
+    assert len(list((feed / "lernkarten" / "kurs-k").glob("*.json"))) == 1   # and its cards are removed again
     monkeypatch.setattr(wv, "write_state", write_state)
     off = registry(env)                                               # switch off: nothing at all
     (env / "registry.json").write_text(json.dumps({**off, "migrated": True}), encoding="utf-8")

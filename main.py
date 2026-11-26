@@ -3670,10 +3670,12 @@ def _wv_muster_cards(cfg: "wv.Config", now: datetime, feed: str, dry_run: bool) 
             _wv_log(f"muster {kurs}: keine brauchbare Karte, der nächste Lauf versucht es wieder")
             failed += 1
             continue
+        card_file = None
         if cards:
             try:
                 name, content = wv.build_muster_file(kurs, cards, now)
-                if not wv.write_new_json(Path(feed) / "lernkarten" / kurs / name, content):
+                card_file = Path(feed) / "lernkarten" / kurs / name
+                if not wv.write_new_json(card_file, content):
                     _wv_log(f"muster {kurs}: {name} gibt es schon, nichts geschrieben")
                     continue
             except (ValueError, OSError) as exc:
@@ -3684,8 +3686,10 @@ def _wv_muster_cards(cfg: "wv.Config", now: datetime, feed: str, dry_run: bool) 
         try:
             wv.write_state(path, {"seit": now.isoformat(timespec="seconds"),
                                   "abgedeckt": list(dict.fromkeys(covered))[-wv.MUSTER_COVERED_MAX:]})
-        except OSError as exc:
-            _wv_log(f"muster {kurs}: {len(cards)} Karte(n) geschrieben, Zustand nicht ({type(exc).__name__})")
+        except OSError as exc:                   # no state, no cards: the next run writes them once
+            if card_file is not None:
+                card_file.unlink(missing_ok=True)
+            _wv_log(f"muster {kurs}: Zustand nicht geschrieben ({type(exc).__name__}), Karten wieder entfernt")
             failed += 1
             continue
         _wv_log(f"muster {kurs}: {len(cards)} Karte(n)" + ("" if cards else f" ({str(result.get('grund') or '')[:120]})"))
