@@ -252,6 +252,11 @@ def test_validate_result():
     assert wv.validate_result({"termine": [dict(good_item(), termin=["x"])]}, ["x"])   # no crash on a list
     bad = good_item(); bad["bild"] = "kein Bild"
     assert wv.validate_result({"termine": [bad]}, ["x"])
+    for keys in (None, []):                     # an append without a new Selbstcheck has no keys
+        item = dict(good_item(), aktion="angehaengt", schluessel=keys)
+        assert wv.validate_result({"termine": [item]}, ["x"]) == []
+        assert wv.validate_result({"termine": [dict(item, aktion="gebaut")]}, ["x"])
+    assert wv.validate_result({"termine": [dict(good_item(), aktion="angehaengt", schluessel=[""])]}, ["x"])
     bad = good_item(); bad["karten"] = []
     assert wv.validate_result({"termine": [bad]}, ["x"])
     assert wv.validate_result({"termine": [bad]}, ["x"], min_cards=0) == []

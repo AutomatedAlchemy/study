@@ -1180,7 +1180,7 @@ Dieser Lauf ist unbeaufsichtigt. Niemand antwortet im Chat. Diese Regeln gelten 
   "dateien": ["<Datei>"], "schluessel": ["<Antwort je Selbstcheck-Aufgabe>"],
   "bild": "Bild: <Entscheidung und Grund>", "karten": [<1-2 Karten>], "vorschau": "<ein Satz>",
   "spiele": [<3-5 Karten, nur wenn der Auftrag Spiele verlangt>]}]}
-Bei „uebersprungen“ reichen termin, aktion und grund. Bei „karten“ (der Auftrag verlangt nur Spiele, nichts am Board) reichen termin, aktion und spiele. `bloecke` nennt die Block-Ids, die du angelegt hast (Notizfelder, „Heute vermutlich“, Selbstcheck), für spätere Läufe.
+Bei „uebersprungen“ reichen termin, aktion und grund. Bei „angehaengt“ ohne neue Selbstcheck-Aufgabe ist schluessel eine leere Liste. Bei „karten“ (der Auftrag verlangt nur Spiele, nichts am Board) reichen termin, aktion und spiele. `bloecke` nennt die Block-Ids, die du angelegt hast (Notizfelder, „Heute vermutlich“, Selbstcheck), für spätere Läufe.
 Eine Karte: {"thema": "<Kürzel>", "front": "<höchstens 300 Zeichen>", "input": {"widget": "radio" | "select" | "number", "options": [...nur bei radio/select]}, "answer": <genauer Optionstext oder Zahl>, "back": "<höchstens 3 Sätze>"}
 Kein Kartentext (front, back, options, answer) enthält das Zeichen <, einen Link, HTML oder Markdown-Links und -Bilder: schreib „kleiner als“ oder in einer Formel \\lt. Eine Karte mit so einem Text macht das ganze Ergebnis ungültig.
 Spiele für den Feed stehen im Feld spiele, nur wenn der Auftrag sie verlangt: 3 bis 5 Karten wie oben, dazu zwei weitere Eingaben.
@@ -1607,7 +1607,10 @@ def validate_result(data, expected_ids, min_cards: int = 1, cards_only=()) -> li
         if item.get("thema_quelle") not in (None, "vermutet", "folien", "notizen", "session"):
             errs.append(f"{where}: thema_quelle ungültig")
         keys = item.get("schluessel")
-        if not isinstance(keys, list) or not keys or not all(isinstance(k, str) and k.strip() for k in keys):
+        # An append to a tab built elsewhere adds a "Neu seit" block and no Selbstcheck: no keys to give.
+        optional = item.get("aktion") == "angehaengt" and keys in (None, [])
+        if not optional and (not isinstance(keys, list) or not keys
+                             or not all(isinstance(k, str) and k.strip() for k in keys)):
             errs.append(f"{where}: schluessel fehlt")
         if not isinstance(item.get("bild"), str) or not item["bild"].startswith("Bild:"):
             errs.append(f"{where}: bild muss mit „Bild:“ beginnen")
